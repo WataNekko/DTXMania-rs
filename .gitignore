@@ -2,3 +2,7 @@
 /target
 # This file contains environment-specific configuration like linker settings
 .cargo/config.toml
+
+# Local songs folder for testing
+/DTXFiles
+/dtxfiles
