@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-channel = "2.5.0"
+async-fs = "2.2.0"
 bevy = "0.18"
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.
 log = { version = "0.4", features = [
@@ -16,7 +18,8 @@ tracing = { version = "0.1", features = [
 ] }
 
 [features]
-default = ["bevy/dynamic_linking"]
+dev = ["bevy/dynamic_linking"]
+default = ["dev"]
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
