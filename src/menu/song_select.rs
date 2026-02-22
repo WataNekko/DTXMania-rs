@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{input::common_conditions::input_just_pressed, prelude::*};
 
 use crate::song::SongDatabase;
 
@@ -11,13 +11,24 @@ impl<S: States + Copy> Plugin for SongSelectPlugin<S> {
         app.add_systems(OnEnter(self.on_state), song_select_setup(self.on_state))
             .add_systems(
                 Update,
-                refresh_songs_container.run_if(resource_exists_and_changed::<SongDatabase>),
+                (
+                    refresh_songs_container.run_if(resource_exists_and_changed::<SongDatabase>),
+                    (
+                        navigate(-1).run_if(input_just_pressed(KeyCode::ArrowUp)),
+                        navigate(1).run_if(input_just_pressed(KeyCode::ArrowDown)),
+                    ),
+                    focus_selected.run_if(resource_exists_and_changed::<SelectedSongIndex>),
+                )
+                    .chain(),
             );
     }
 }
 
 #[derive(Component)]
 struct SongsContainer;
+
+#[derive(Resource)]
+struct SelectedSongIndex(usize);
 
 const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 
@@ -85,9 +96,9 @@ fn refresh_songs_container(
                     Node {
                         width: px(300),
                         height: px(65),
-                        margin: UiRect::all(px(2)),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
+                        border: UiRect::all(px(5)),
                         ..default()
                     },
                     BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
@@ -102,4 +113,37 @@ fn refresh_songs_container(
                 ));
             }
         });
+
+    commands.remove_resource::<SelectedSongIndex>();
+}
+
+fn navigate(
+    step: isize,
+) -> impl Fn(Single<&Children, With<SongsContainer>>, Commands, Option<ResMut<SelectedSongIndex>>) {
+    move |songs, mut commands, selected| {
+        if songs.is_empty() {
+            return;
+        }
+
+        let selected = selected.map(|s| s.0).unwrap_or(0);
+        commands.entity(songs[selected]).remove::<BorderColor>();
+
+        let new_selected = (selected as isize + step).rem_euclid(songs.len() as _) as usize;
+        commands
+            .entity(songs[new_selected])
+            .insert(BorderColor::all(Color::srgb(0.8, 0.0, 0.0)));
+        commands.insert_resource(SelectedSongIndex(new_selected));
+    }
+}
+
+fn focus_selected(
+    container: Single<(&mut UiTransform, &Children), With<SongsContainer>>,
+    node_query: Query<&ComputedNode, Without<SongsContainer>>,
+    selected: Res<SelectedSongIndex>,
+) {
+    let (mut transform, children) = container.into_inner();
+    let Some(node) = children.first().and_then(|&e| node_query.get(e).ok()) else {
+        return;
+    };
+    transform.translation.y = -Val::Px(selected.0 as f32 * node.size.y);
 }
