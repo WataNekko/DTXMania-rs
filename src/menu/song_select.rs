@@ -23,6 +23,9 @@ impl<S: States + Copy> Plugin for SongSelectPlugin<S> {
                 (
                     navigate(-1).run_if(input_just_pressed(KeyCode::ArrowUp)),
                     navigate(1).run_if(input_just_pressed(KeyCode::ArrowDown)),
+                    confirm_selection.run_if(
+                        resource_exists::<SelectedSongIndex>
+                            .and(input_just_pressed(KeyCode::Enter)),
                     ),
                 ),
                 focus_selected.run_if(resource_exists_and_changed::<SelectedSongIndex>),
@@ -38,6 +41,11 @@ struct SongsContainer;
 
 #[derive(Resource)]
 struct SelectedSongIndex(usize);
+
+#[derive(Event, Debug)]
+pub struct ConfirmSongSelect {
+    pub db_idx: usize,
+}
 
 const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 
@@ -97,9 +105,10 @@ fn refresh_songs_container(
         .despawn_children()
         .with_children(|parent| {
             for song in song_db.iter() {
-                let Some(name) = song.file_name().map(|name| name.to_string_lossy()) else {
-                    continue;
-                };
+                let name = song
+                    .file_name()
+                    .map(|name| name.to_string_lossy())
+                    .expect("song_db should contain only valid parsed entries");
 
                 parent.spawn((
                     Node {
@@ -155,4 +164,8 @@ fn focus_selected(
         return;
     };
     transform.translation.y = -Val::Px(selected.0 as f32 * node.size.y);
+}
+
+fn confirm_selection(mut commands: Commands, idx: Res<SelectedSongIndex>) {
+    commands.trigger(ConfirmSongSelect { db_idx: idx.0 });
 }
