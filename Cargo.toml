@@ -18,7 +18,7 @@ tracing = { version = "0.1", features = [
 ] }
 
 [features]
-dev = ["bevy/dynamic_linking"]
+dev = ["bevy/dynamic_linking", "bevy/debug"]
 default = ["dev"]
 
 # Enable a small amount of optimization in the dev profile.
