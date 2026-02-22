@@ -8,19 +8,28 @@ pub struct SongSelectPlugin<S> {
 
 impl<S: States + Copy> Plugin for SongSelectPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(self.on_state), song_select_setup(self.on_state))
-            .add_systems(
-                Update,
+        app.add_systems(
+            OnEnter(self.on_state),
+            (
+                song_select_setup(self.on_state),
+                refresh_songs_container.run_if(resource_exists::<SongDatabase>),
+            )
+                .chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                refresh_songs_container.run_if(resource_exists_and_changed::<SongDatabase>),
                 (
-                    refresh_songs_container.run_if(resource_exists_and_changed::<SongDatabase>),
-                    (
-                        navigate(-1).run_if(input_just_pressed(KeyCode::ArrowUp)),
-                        navigate(1).run_if(input_just_pressed(KeyCode::ArrowDown)),
+                    navigate(-1).run_if(input_just_pressed(KeyCode::ArrowUp)),
+                    navigate(1).run_if(input_just_pressed(KeyCode::ArrowDown)),
                     ),
-                    focus_selected.run_if(resource_exists_and_changed::<SelectedSongIndex>),
-                )
-                    .chain(),
-            );
+                ),
+                focus_selected.run_if(resource_exists_and_changed::<SelectedSongIndex>),
+            )
+                .chain()
+                .run_if(in_state(self.on_state)),
+        );
     }
 }
 
