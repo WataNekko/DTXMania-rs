@@ -1,9 +1,14 @@
+mod gameplay;
 mod menu;
 mod song;
 
 use bevy::prelude::*;
 
-use crate::{menu::song_select::*, song::scan::*};
+use crate::{
+    gameplay::{GameplayPlugin, SongPlaying},
+    menu::song_select::*,
+    song::{SongDatabase, scan::*},
+};
 
 pub struct AppPlugin;
 
@@ -15,6 +20,10 @@ impl Plugin for AppPlugin {
             },
             SongSelectPlugin {
                 on_state: GameState::SongSelect,
+            },
+            GameplayPlugin {
+                on_state: GameState::Gameplay,
+                return_state: GameState::SongSelect,
             },
         ))
         .init_state::<GameState>()
@@ -31,8 +40,13 @@ enum GameState {
 
 fn on_confirm_song_select(
     select: On<ConfirmSongSelect>,
+    mut commands: Commands,
     mut next_state: ResMut<NextState<GameState>>,
+    song_db: Res<SongDatabase>,
 ) {
-    info!("{:?}", *select);
+    info!("Selected song: {}", song_db[select.db_idx].display());
+    commands.insert_resource(SongPlaying {
+        db_idx: select.db_idx,
+    });
     next_state.set(GameState::Gameplay);
 }
