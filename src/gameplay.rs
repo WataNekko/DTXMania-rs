@@ -2,32 +2,33 @@ use std::{io, time::Duration};
 
 use bevy::{
     prelude::*,
-    state::state::FreelyMutableState,
     tasks::{IoTaskPool, Task, futures::check_ready},
     time::common_conditions::on_timer,
 };
 
-use crate::song::SongDatabase;
+use crate::{
+    GameState,
+    song::{SongDatabase, SongPlaying},
+};
 
-pub struct GameplayPlugin<S> {
-    pub on_state: S,
-    pub return_state: S,
-}
+pub struct GameplayPlugin;
 
-impl<S: States + FreelyMutableState + Copy> Plugin for GameplayPlugin<S> {
+impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameplayState>()
-            .add_systems(OnEnter(self.on_state), setup)
-            .add_systems(OnExit(self.on_state), cleanup)
+            .add_systems(OnEnter(GameState::Gameplay), setup)
             .add_systems(OnEnter(GameplayState::Loading), load_song)
-            .add_systems(Update, handle_song_load_done)
+            .add_systems(
+                Update,
+                handle_song_load_done.run_if(in_state(GameplayState::Loading)),
+            )
             .add_systems(OnEnter(GameplayState::Play), play_setup)
             .add_systems(
                 Update,
-                (|mut commands: Commands| commands.trigger(StateReturn))
+                (|mut commands: Commands| commands.trigger(Return))
                     .run_if(in_state(GameplayState::Play).and(on_timer(Duration::from_secs(5)))),
             )
-            .add_observer(on_state_return(self.return_state));
+            .add_observer(on_return);
     }
 }
 
@@ -39,12 +40,6 @@ enum GameplayState {
     Disabled,
 }
 
-/// This must be inserted before transitioning into the Gameplay state.
-#[derive(Resource)]
-pub struct SongPlaying {
-    pub db_idx: usize,
-}
-
 #[derive(Resource)]
 struct SongLoadTask(Task<io::Result<String>>);
 
@@ -52,14 +47,10 @@ struct SongLoadTask(Task<io::Result<String>>);
 struct LoadedSong(String);
 
 #[derive(Event)]
-struct StateReturn;
+struct Return;
 
 fn setup(mut state: ResMut<NextState<GameplayState>>) {
     state.set(GameplayState::Loading);
-}
-
-fn cleanup(mut state: ResMut<NextState<GameplayState>>) {
-    state.set(GameplayState::default());
 }
 
 fn load_song(mut commands: Commands, song_playing: Res<SongPlaying>, song_db: Res<SongDatabase>) {
@@ -73,10 +64,10 @@ fn load_song(mut commands: Commands, song_playing: Res<SongPlaying>, song_db: Re
 
 fn handle_song_load_done(
     mut commands: Commands,
-    mut song_load: If<ResMut<SongLoadTask>>,
+    mut song_load: ResMut<SongLoadTask>,
     mut next_state: ResMut<NextState<GameplayState>>,
 ) {
-    let Some(res) = check_ready(&mut song_load.0.0) else {
+    let Some(res) = check_ready(&mut song_load.0) else {
         return;
     };
     commands.remove_resource::<SongLoadTask>();
@@ -84,7 +75,7 @@ fn handle_song_load_done(
     match res {
         Err(err) => {
             error!("Error loading song: {}", err);
-            commands.trigger(StateReturn);
+            commands.trigger(Return);
         }
         Ok(text) => {
             commands.insert_resource(LoadedSong(text));
@@ -93,12 +84,13 @@ fn handle_song_load_done(
     }
 }
 
-fn on_state_return<S: States + FreelyMutableState + Copy>(
-    return_state: S,
-) -> impl Fn(On<StateReturn>, ResMut<NextState<S>>) {
-    move |_, mut next_state| {
-        next_state.set(return_state);
-    }
+fn on_return(
+    _: On<Return>,
+    mut game_state: ResMut<NextState<GameState>>,
+    mut play_state: ResMut<NextState<GameplayState>>,
+) {
+    game_state.set(GameState::SongSelect);
+    play_state.set(GameplayState::Disabled);
 }
 
 fn play_setup(mut commands: Commands, song: Res<LoadedSong>) {

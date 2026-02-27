@@ -8,13 +8,11 @@ use bevy::{
 
 use crate::song::SongDatabase;
 
-pub struct SongScanPlugin {
-    pub state: SongScanState,
-}
+pub struct SongScanPlugin;
 
 impl Plugin for SongScanPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_state(self.state)
+        app.insert_state(SongScanState::Scanning)
             .add_systems(OnEnter(SongScanState::Scanning), song_scan_start)
             .add_systems(
                 Update,

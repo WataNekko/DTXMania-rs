@@ -1,17 +1,18 @@
 use bevy::{input::common_conditions::input_just_pressed, prelude::*};
 
-use crate::song::SongDatabase;
+use crate::{
+    GameState,
+    song::{SongDatabase, SongPlaying},
+};
 
-pub struct SongSelectPlugin<S> {
-    pub on_state: S,
-}
+pub struct SongSelectPlugin;
 
-impl<S: States + Copy> Plugin for SongSelectPlugin<S> {
+impl Plugin for SongSelectPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
-            OnEnter(self.on_state),
+            OnEnter(GameState::SongSelect),
             (
-                song_select_setup(self.on_state),
+                song_select_setup,
                 refresh_songs_container.run_if(resource_exists::<SongDatabase>),
             )
                 .chain(),
@@ -31,7 +32,7 @@ impl<S: States + Copy> Plugin for SongSelectPlugin<S> {
                 focus_selected.run_if(resource_exists_and_changed::<SelectedSongIndex>),
             )
                 .chain()
-                .run_if(in_state(self.on_state)),
+                .run_if(in_state(GameState::SongSelect)),
         );
     }
 }
@@ -42,57 +43,50 @@ struct SongsContainer;
 #[derive(Resource)]
 struct SelectedSongIndex(usize);
 
-#[derive(Event, Debug)]
-pub struct ConfirmSongSelect {
-    pub db_idx: usize,
-}
-
 const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 
-fn song_select_setup(state: impl States + Copy) -> impl Fn(Commands) {
-    move |mut commands| {
-        commands.spawn((
-            DespawnOnExit(state),
+fn song_select_setup(mut commands: Commands) {
+    commands.spawn((
+        DespawnOnExit(GameState::SongSelect),
+        Node {
+            width: percent(100),
+            height: percent(100),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::End,
+            padding: UiRect::right(Val::Px(50.)),
+            ..default()
+        },
+        children![(
             Node {
-                width: percent(100),
-                height: percent(100),
+                flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                justify_content: JustifyContent::End,
-                padding: UiRect::right(Val::Px(50.)),
                 ..default()
             },
-            children![(
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.3, 0.3, 0.1)),
-                children![
-                    (
-                        Text::new("Song Select"),
-                        TextFont {
-                            font_size: 67.0,
-                            ..default()
-                        },
-                        TextColor(TEXT_COLOR),
-                        Node {
-                            margin: UiRect::all(px(50)),
-                            ..default()
-                        },
-                    ),
-                    (
-                        Node {
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        SongsContainer,
-                    )
-                ]
-            )],
-        ));
-    }
+            BackgroundColor(Color::srgb(0.3, 0.3, 0.1)),
+            children![
+                (
+                    Text::new("Song Select"),
+                    TextFont {
+                        font_size: 67.0,
+                        ..default()
+                    },
+                    TextColor(TEXT_COLOR),
+                    Node {
+                        margin: UiRect::all(px(50)),
+                        ..default()
+                    },
+                ),
+                (
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    SongsContainer,
+                )
+            ]
+        )],
+    ));
 }
 
 fn refresh_songs_container(
@@ -166,6 +160,13 @@ fn focus_selected(
     transform.translation.y = -Val::Px(selected.0 as f32 * node.size.y);
 }
 
-fn confirm_selection(mut commands: Commands, idx: Res<SelectedSongIndex>) {
-    commands.trigger(ConfirmSongSelect { db_idx: idx.0 });
+fn confirm_selection(
+    mut commands: Commands,
+    idx: Res<SelectedSongIndex>,
+    song_db: Res<SongDatabase>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    info!("Selected song: {}", song_db[idx.0].display());
+    commands.insert_resource(SongPlaying { db_idx: idx.0 });
+    next_state.set(GameState::Gameplay);
 }
