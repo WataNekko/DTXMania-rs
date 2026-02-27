@@ -19,10 +19,20 @@ impl Plugin for SongScanPlugin {
                 handle_song_scan_message.run_if(in_state(SongScanState::Scanning)),
             )
             .add_systems(OnExit(SongScanState::Scanning), song_scan_cleanup);
+
+        #[cfg(feature = "dev")]
+        {
+            use crate::debug::toggle_inspector;
+            use bevy_inspector_egui::quick::StateInspectorPlugin;
+
+            app.add_plugins(
+                StateInspectorPlugin::<SongScanState>::default().run_if(toggle_inspector()),
+            );
+        }
     }
 }
 
-#[derive(States, Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(States, Clone, Copy, Debug, Eq, PartialEq, Hash, Reflect)]
 pub enum SongScanState {
     Scanning,
     Done,

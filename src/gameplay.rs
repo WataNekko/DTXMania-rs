@@ -29,10 +29,21 @@ impl Plugin for GameplayPlugin {
                     .run_if(in_state(GameplayState::Play).and(on_timer(Duration::from_secs(5)))),
             )
             .add_observer(on_return);
+
+        #[cfg(feature = "dev")]
+        {
+            use crate::debug::toggle_inspector;
+            use bevy_inspector_egui::quick::StateInspectorPlugin;
+
+            app.add_plugins(
+                StateInspectorPlugin::<GameplayState>::default()
+                    .run_if(toggle_inspector().and(in_state(GameState::Gameplay))),
+            );
+        }
     }
 }
 
-#[derive(States, Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+#[derive(States, Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Reflect)]
 enum GameplayState {
     Loading,
     Play,
