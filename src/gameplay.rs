@@ -1,14 +1,15 @@
 use std::{io, time::Duration};
 
+use async_fs::File;
 use bevy::{
     prelude::*,
-    tasks::{IoTaskPool, Task, futures::check_ready},
+    tasks::{IoTaskPool, Task, futures::check_ready, futures_lite::io::BufReader},
     time::common_conditions::on_timer,
 };
 
 use crate::{
     GameState,
-    song::{SongDatabase, SongPlaying},
+    song::{SongDatabase, SongPlaying, parser::parse_dtx_chart},
 };
 
 pub struct GameplayPlugin;
@@ -68,7 +69,11 @@ fn load_song(mut commands: Commands, song_playing: Res<SongPlaying>, song_db: Re
     let song = song_db[song_playing.db_idx].clone();
     info!("Loading song: {}", song.display());
 
-    let task = IoTaskPool::get().spawn(async move { async_fs::read_to_string(song).await });
+    let task = IoTaskPool::get().spawn(async move {
+        let file = File::open(song).await?;
+        let reader = BufReader::new(file);
+        parse_dtx_chart(reader).await
+    });
 
     commands.insert_resource(SongLoadTask(task));
 }

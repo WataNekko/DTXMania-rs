@@ -3,6 +3,7 @@ mod debug;
 mod gameplay;
 mod menu;
 mod song;
+mod utils;
 
 use bevy::prelude::*;
 
