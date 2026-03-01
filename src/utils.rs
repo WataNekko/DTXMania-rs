@@ -18,6 +18,7 @@ impl<R: AsyncBufRead + Unpin> AsyncBufReadEncodingExt for R {
             reader: self,
             decoder: encoding.new_decoder(),
             decoded_buf: String::new(),
+            new_line_check_pos: 0,
             state: State::PendingRead,
         }
     }
@@ -27,6 +28,7 @@ struct LinesDecoded<R> {
     reader: R,
     decoder: Decoder,
     decoded_buf: String,
+    new_line_check_pos: usize,
     state: State,
 }
 
@@ -44,6 +46,7 @@ impl<R: AsyncBufRead + Unpin> Stream for LinesDecoded<R> {
             reader,
             decoder,
             decoded_buf,
+            new_line_check_pos,
             state,
         } = &mut *self;
 
@@ -105,17 +108,19 @@ impl<R: AsyncBufRead + Unpin> Stream for LinesDecoded<R> {
 
                     *state = State::Available;
                 }
-                State::Available => {
-                    if let Some(pos) = decoded_buf.find('\n') {
-                        let remaining = decoded_buf.split_off(pos + 1);
+                State::Available => match decoded_buf[*new_line_check_pos..].find('\n') {
+                    Some(pos) => {
+                        let remaining = decoded_buf.split_off(*new_line_check_pos + pos + 1);
                         let line = std::mem::replace(decoded_buf, remaining);
+                        *new_line_check_pos = 0;
                         return Poll::Ready(Some(Ok(line)));
                     }
-                    *state = State::PendingRead;
-                }
-                State::Eof => {
-                    return Poll::Ready(None);
-                }
+                    None => {
+                        *new_line_check_pos = decoded_buf.len();
+                        *state = State::PendingRead;
+                    }
+                },
+                State::Eof => return Poll::Ready(None),
             }
         }
     }
