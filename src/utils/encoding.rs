@@ -92,6 +92,17 @@ impl<R: AsyncBufRead + Unpin> DecodedBufRead<R> {
             total_read: 0,
         }
     }
+
+    pub fn read_line<'a>(
+        &'a mut self,
+        buf: &'a mut String,
+    ) -> impl Future<Output = io::Result<usize>> + 'a {
+        ReadLineFuture {
+            reader: self,
+            buf,
+            total_read: 0,
+        }
+    }
 }
 
 struct ReadToStringFuture<'a, R> {
@@ -121,6 +132,45 @@ impl<R: AsyncBufRead + Unpin> Future for ReadToStringFuture<'_, R> {
             let len = filled.len();
             reader.consume(len);
             *total_read += len;
+        }
+        Poll::Ready(Ok(*total_read))
+    }
+}
+
+struct ReadLineFuture<'a, R> {
+    reader: &'a mut DecodedBufRead<R>,
+    buf: &'a mut String,
+    total_read: usize,
+}
+
+impl<R: AsyncBufRead + Unpin> Future for ReadLineFuture<'_, R> {
+    type Output = io::Result<usize>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Self {
+            reader,
+            buf,
+            total_read,
+        } = &mut *self;
+
+        loop {
+            let filled = ready!(reader.poll_fill_buf(cx))?;
+            if filled.is_empty() {
+                break;
+            }
+
+            let (read, found_new_line) = filled
+                .find('\n')
+                .map(|pos| (pos + 1, true))
+                .unwrap_or_else(|| (filled.len(), false));
+
+            buf.push_str(&filled[..read]);
+            reader.consume(read);
+            *total_read += read;
+
+            if found_new_line {
+                break;
+            }
         }
         Poll::Ready(Ok(*total_read))
     }
@@ -336,5 +386,33 @@ mod test {
             );
         }
         assert_eq!(buf, format!("Hello world UTF1{}", REPLACEMENT_CHARACTER));
+    }
+
+    #[test]
+    fn read_line() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let mut reader = b"Never gonna give you up\n\
+            Never gonna let you down\n\
+            Never gonna run around and desert you"
+            .with_encoding(UTF_8);
+
+        let mut buf = String::new();
+
+        for expected in [
+            "Never gonna give you up\n",
+            "Never gonna let you down\n",
+            "Never gonna run around and desert you",
+            "",
+        ] {
+            buf.clear();
+
+            assert_eq!(
+                reader.read_line(&mut buf).poll(&mut cx).map(expect_no_io),
+                Poll::Ready(expected.len())
+            );
+            assert_eq!(buf, expected.to_string());
+        }
     }
 }
