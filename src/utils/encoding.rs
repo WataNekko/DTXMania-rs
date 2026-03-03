@@ -34,8 +34,7 @@ pub struct DecodedBufRead<R> {
 
 impl<R: AsyncBufRead + Unpin> DecodedBufRead<R> {
     pub fn buffer(&self) -> &str {
-        // SAFETY: This type ensures self.pos is never incremented further than self.buf.len().
-        unsafe { self.buf.get_unchecked(self.pos..) }
+        &self.buf[self.pos..]
     }
 
     pub fn poll_fill_buf(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<&str>> {
@@ -114,5 +113,212 @@ impl<R: AsyncBufRead + Unpin> Future for ReadToStringFuture<'_, R> {
             reader.consume(len);
         }
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{char::REPLACEMENT_CHARACTER, task::Waker};
+
+    use bevy::tasks::futures_lite::{FutureExt, io::BufReader};
+    use encoding_rs::{UTF_8, UTF_16LE};
+
+    use super::*;
+
+    fn expect_no_io<T>(result: Result<T, io::Error>) -> T {
+        result.expect("No IO error possible")
+    }
+
+    #[test]
+    fn fill_buf_utf8() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let mut reader = b"Hello world".with_encoding(UTF_8);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("Hello world"),
+            "Should return the full buffer"
+        );
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("Hello world"),
+            "Should still return full buffer since nothing is consumed"
+        );
+
+        reader.consume("Hello world".len());
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready(""),
+            "EOF"
+        );
+    }
+
+    #[test]
+    fn partial_consume() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let mut reader = b"Hello world".with_encoding(UTF_8);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("Hello world"),
+            "Should return the full buffer"
+        );
+
+        reader.consume("Hello ".len());
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("world"),
+            "Buffer consumed partially"
+        );
+
+        reader.consume("world".len());
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready(""),
+            "EOF"
+        );
+    }
+
+    #[test]
+    fn small_buf() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let mut reader =
+            BufReader::with_capacity(4, b"Hello world".as_slice()).with_encoding(UTF_8);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("Hell"),
+            "Fill up to the inner buffer capacity"
+        );
+
+        reader.consume(4);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("o wo"),
+            "Fill up to the inner buffer capacity"
+        );
+
+        reader.consume(4);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("rld"),
+            "Fill up to the inner buffer capacity"
+        );
+
+        reader.consume(4);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready(""),
+            "EOF"
+        );
+    }
+
+    #[test]
+    fn fill_buf_utf16() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let encoded: Vec<u8> = "Hello world UTF16"
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect();
+        let mut reader = encoded.with_encoding(UTF_16LE);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("Hello world UTF16"),
+            "Return full decoded buffer"
+        );
+
+        reader.consume("Hello world UTF16".len());
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready(""),
+            "EOF"
+        );
+    }
+
+    #[test]
+    fn fill_buf_utf16_malformed() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let encoded: Vec<u8> = "Hello world UTF16"
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect();
+        let (_, malformed_encoded) = encoded.split_last().unwrap();
+        let mut reader = malformed_encoded.with_encoding(UTF_16LE);
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready("Hello world UTF1"),
+            "Decoded up to before the last malformed UTF16 sequence"
+        );
+
+        reader.consume("Hello world UTF1".len());
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready(REPLACEMENT_CHARACTER.to_string().as_str()),
+            "The final malformed sequence is replaced with the replacement character"
+        );
+
+        reader.consume(REPLACEMENT_CHARACTER.len_utf8());
+
+        assert_eq!(
+            reader.poll_fill_buf(&mut cx).map(expect_no_io),
+            Poll::Ready(""),
+            "EOF"
+        );
+    }
+
+    #[test]
+    fn read_to_string() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let mut reader = b"Hello world".with_encoding(UTF_8);
+
+        let mut buf = String::new();
+        {
+            let mut fut = reader.read_to_string(&mut buf);
+            assert_eq!(fut.poll(&mut cx).map(expect_no_io), Poll::Ready(()));
+        }
+        assert_eq!(buf, "Hello world".to_string());
+    }
+
+    #[test]
+    fn read_to_string_malformed() {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        let encoded: Vec<u8> = "Hello world UTF16"
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect();
+        let (_, malformed_encoded) = encoded.split_last().unwrap();
+        let mut reader = malformed_encoded.with_encoding(UTF_16LE);
+
+        let mut buf = String::new();
+        {
+            let mut fut = reader.read_to_string(&mut buf);
+            assert_eq!(fut.poll(&mut cx).map(expect_no_io), Poll::Ready(()));
+        }
+        assert_eq!(buf, format!("Hello world UTF1{}", REPLACEMENT_CHARACTER));
     }
 }
