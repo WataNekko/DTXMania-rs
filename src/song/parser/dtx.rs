@@ -1,20 +1,15 @@
 use std::io;
 
-use bevy::{
-    prelude::*,
-    tasks::futures_lite::{AsyncBufRead, StreamExt},
-};
+use bevy::{prelude::*, tasks::futures_lite::AsyncBufRead};
 use encoding_rs::SHIFT_JIS;
 
-use crate::utils::AsyncBufReadEncodingExt;
+use crate::utils::encoding::AsyncBufReadEncodingExt;
 
 pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<String> {
-    let mut lines = reader.lines_decoded(SHIFT_JIS);
-    let mut output = String::new();
+    let mut reader = reader.with_encoding(SHIFT_JIS);
 
-    while let Some(line) = lines.try_next().await? {
-        output.push_str(&line);
-    }
+    let mut output = String::new();
+    reader.read_to_string(&mut output).await?;
 
     Ok(output)
 }
