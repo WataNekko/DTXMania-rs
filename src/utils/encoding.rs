@@ -354,15 +354,17 @@ mod test {
 
         let mut reader = b"Hello world".with_encoding(UTF_8);
 
+        let expected = "Hello world".to_string();
+
         let mut buf = String::new();
-        {
-            let mut fut = reader.read_to_string(&mut buf);
-            assert_eq!(
-                fut.poll(&mut cx).map(expect_no_io),
-                Poll::Ready("Hello world".len())
-            );
-        }
-        assert_eq!(buf, "Hello world".to_string());
+        assert_eq!(
+            reader
+                .read_to_string(&mut buf)
+                .poll(&mut cx)
+                .map(expect_no_io),
+            Poll::Ready(expected.len())
+        );
+        assert_eq!(buf, expected);
     }
 
     #[test]
@@ -377,15 +379,17 @@ mod test {
         let (_, malformed_encoded) = encoded.split_last().unwrap();
         let mut reader = malformed_encoded.with_encoding(UTF_16LE);
 
+        let expected = format!("Hello world UTF1{}", REPLACEMENT_CHARACTER);
+
         let mut buf = String::new();
-        {
-            let mut fut = reader.read_to_string(&mut buf);
-            assert_eq!(
-                fut.poll(&mut cx).map(expect_no_io),
-                Poll::Ready(format!("Hello world UTF1{}", REPLACEMENT_CHARACTER).len())
-            );
-        }
-        assert_eq!(buf, format!("Hello world UTF1{}", REPLACEMENT_CHARACTER));
+        assert_eq!(
+            reader
+                .read_to_string(&mut buf)
+                .poll(&mut cx)
+                .map(expect_no_io),
+            Poll::Ready(expected.len())
+        );
+        assert_eq!(buf, expected);
     }
 
     #[test]
