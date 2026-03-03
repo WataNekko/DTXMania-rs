@@ -85,21 +85,30 @@ impl<R: AsyncBufRead + Unpin> DecodedBufRead<R> {
     pub fn read_to_string<'a>(
         &'a mut self,
         buf: &'a mut String,
-    ) -> impl Future<Output = io::Result<()>> + 'a {
-        ReadToStringFuture { reader: self, buf }
+    ) -> impl Future<Output = io::Result<usize>> + 'a {
+        ReadToStringFuture {
+            reader: self,
+            buf,
+            total_read: 0,
+        }
     }
 }
 
 struct ReadToStringFuture<'a, R> {
     reader: &'a mut DecodedBufRead<R>,
     buf: &'a mut String,
+    total_read: usize,
 }
 
 impl<R: AsyncBufRead + Unpin> Future for ReadToStringFuture<'_, R> {
-    type Output = io::Result<()>;
+    type Output = io::Result<usize>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let Self { reader, buf } = &mut *self;
+        let Self {
+            reader,
+            buf,
+            total_read,
+        } = &mut *self;
 
         loop {
             let filled = ready!(reader.poll_fill_buf(cx))?;
@@ -111,8 +120,9 @@ impl<R: AsyncBufRead + Unpin> Future for ReadToStringFuture<'_, R> {
 
             let len = filled.len();
             reader.consume(len);
+            *total_read += len;
         }
-        Poll::Ready(Ok(()))
+        Poll::Ready(Ok(*total_read))
     }
 }
 
@@ -297,7 +307,10 @@ mod test {
         let mut buf = String::new();
         {
             let mut fut = reader.read_to_string(&mut buf);
-            assert_eq!(fut.poll(&mut cx).map(expect_no_io), Poll::Ready(()));
+            assert_eq!(
+                fut.poll(&mut cx).map(expect_no_io),
+                Poll::Ready("Hello world".len())
+            );
         }
         assert_eq!(buf, "Hello world".to_string());
     }
@@ -317,7 +330,10 @@ mod test {
         let mut buf = String::new();
         {
             let mut fut = reader.read_to_string(&mut buf);
-            assert_eq!(fut.poll(&mut cx).map(expect_no_io), Poll::Ready(()));
+            assert_eq!(
+                fut.poll(&mut cx).map(expect_no_io),
+                Poll::Ready(format!("Hello world UTF1{}", REPLACEMENT_CHARACTER).len())
+            );
         }
         assert_eq!(buf, format!("Hello world UTF1{}", REPLACEMENT_CHARACTER));
     }
