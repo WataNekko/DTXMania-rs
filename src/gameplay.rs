@@ -9,7 +9,10 @@ use bevy::{
 
 use crate::{
     GameState,
-    song::{SongDatabase, SongPlaying, parser::parse_dtx_chart},
+    song::{
+        SongDatabase, SongPlaying,
+        parser::{DtxChart, parse_dtx_chart},
+    },
 };
 
 pub struct GameplayPlugin;
@@ -53,10 +56,10 @@ enum GameplayState {
 }
 
 #[derive(Resource)]
-struct SongLoadTask(Task<io::Result<String>>);
+struct SongLoadTask(Task<io::Result<DtxChart>>);
 
 #[derive(Resource)]
-struct LoadedSong(String);
+struct LoadedSong(DtxChart);
 
 #[derive(Event)]
 struct Return;
@@ -93,8 +96,8 @@ fn handle_song_load_done(
             error!("Error loading song: {}", err);
             commands.trigger(Return);
         }
-        Ok(text) => {
-            commands.insert_resource(LoadedSong(text));
+        Ok(chart) => {
+            commands.insert_resource(LoadedSong(chart));
             next_state.set(GameplayState::Play);
         }
     }
@@ -110,7 +113,7 @@ fn on_return(
 }
 
 fn play_setup(mut commands: Commands, song: Res<LoadedSong>) {
-    let text = song.0.clone();
+    let text = song.0.title.clone();
 
     commands.spawn((
         DespawnOnExit(GameplayState::Play),
