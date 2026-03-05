@@ -100,22 +100,10 @@ impl DtxChartParser {
                 });
             }
 
-            // Finish parsing
-            let res = iter.finish().map_err(ParseError::from).and_then(|(i, ())| {
-                if i.is_empty() {
-                    Ok(())
-                } else {
-                    // Faulty input. Otherwise it would have consumed all
-                    Err(ParseError::InvalidCommandValue(value))
-                }
-            });
-
-            if let Err(err) = res {
+            iter.finish().inspect_err(|_| {
                 // Parsing failed. Roll back
                 self.objects.truncate(old_len);
-
-                return Err(err);
-            }
+            })?;
 
             // All good. Post-process the new objects
             for new_obj in &mut self.objects[old_len..] {
@@ -218,20 +206,17 @@ fn object_list<'a>(
 ) -> CommandResult<'a, ObjectList<'a, impl Parser<&'a str, Output = u16, Error = Error<&'a str>>>> {
     let (_, (measure, channel)) = all_consuming((measure, channel)).parse(command)?;
 
-    let (value, _) = take_while(|c| c == '_')(value)?;
     let radix = 36; // TODO: to be taken from `channel` info somehow.
+    let digit = move |i| anychar.map_opt(|c| c.to_digit(radix)).parse(i);
+
+    let digit_ignoring_underscore =
+        move |i| digit.or(preceded(take_while(|c| c == '_'), digit)).parse(i);
 
     let iter = iterator(
         value,
         (
-            terminated(
-                anychar.map_opt(move |c| c.to_digit(radix)),
-                take_while(|c| c == '_'),
-            ),
-            terminated(
-                anychar.map_opt(move |c| c.to_digit(radix)),
-                take_while(|c| c == '_'),
-            ),
+            cut_not_eof(digit_ignoring_underscore),
+            cut(digit_ignoring_underscore),
         )
             .map(move |(a, b)| (a * radix + b) as u16),
     );
