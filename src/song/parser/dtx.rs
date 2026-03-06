@@ -1,17 +1,20 @@
+mod commands;
+
 use std::{cmp::Ordering, io};
 
 use bevy::{prelude::warn, tasks::futures_lite::AsyncBufRead};
 use encoding_rs::SHIFT_JIS;
 use nom::{
-    Err, IResult, Parser,
-    bytes::complete::{is_not, tag, take, take_while},
-    character::complete::{anychar, not_line_ending, space0},
-    combinator::{ParserIterator, all_consuming, cut, eof, iterator, opt, recognize},
-    error::{Error, ErrorKind},
-    sequence::{preceded, separated_pair, terminated},
+    Err, Parser,
+    character::complete::space0,
+    combinator::{all_consuming, eof, opt},
+    error::Error,
+    sequence::terminated,
 };
 
 use crate::utils::{encoding::AsyncBufReadEncodingExt, parser::*};
+
+use self::commands::*;
 
 pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<DtxChart> {
     let mut reader = reader.with_encoding(SHIFT_JIS);
@@ -88,13 +91,13 @@ impl DtxChartParser {
                 total_items += 1;
 
                 if obj == 0 {
-                    // Only store non spacing objects
+                    // Only store non-spacing objects
                     continue;
                 }
 
                 self.objects.push(Object {
                     measure,
-                    fraction: i as f32,
+                    fraction: i as f64,
                     channel,
                     value: obj,
                 });
@@ -107,7 +110,7 @@ impl DtxChartParser {
 
             // All good. Post-process the new objects
             for new_obj in &mut self.objects[old_len..] {
-                new_obj.fraction /= total_items as f32;
+                new_obj.fraction /= total_items as f64;
             }
         } else {
             return Err(ParseError::UnknownCommand(command));
@@ -146,84 +149,7 @@ impl<'a> From<Err<Error<&'a str>>> for ParseError<'a> {
 #[derive(Debug)]
 pub struct Object {
     measure: u16,
-    fraction: f32,
+    fraction: f64,
     channel: u8,
     value: u16,
-}
-
-fn comment(input: &str) -> IResult<&str, &str> {
-    recognize((tag(";"), not_line_ending)).parse(input)
-}
-
-fn command(input: &str) -> IResult<&str, (&str, &str)> {
-    preceded(
-        tag("#"),
-        cut(separated_pair(
-            is_not(": \t;\r\n"),
-            opt(tag(":")).and(space0),
-            opt(is_not(";\r\n"))
-                .map(Option::unwrap_or_default)
-                .map(str::trim_end),
-        )),
-    )
-    .parse(input)
-}
-
-type CommandResult<'a, O> = Result<O, Err<Error<&'a str>>>;
-
-fn title<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, &'a str> {
-    if command != "TITLE" {
-        return Err(Err::Error(Error::new(command, ErrorKind::Tag)));
-    }
-
-    Ok(value)
-}
-
-struct ObjectList<'a, P> {
-    measure: u16,
-    channel: u8,
-    iter: ParserIterator<&'a str, Error<&'a str>, P>,
-}
-
-fn measure(input: &str) -> IResult<&str, u16> {
-    (
-        take(1usize).map_res(|m| u16::from_str_radix(m, 36)),
-        take(2usize).map_res(str::parse::<u16>),
-    )
-        .map(|(m, mm)| m * 100 + mm)
-        .parse(input)
-}
-
-fn channel(input: &str) -> IResult<&str, u8> {
-    take(2usize)
-        .map_res(|cc| u8::from_str_radix(cc, 16))
-        .parse(input)
-}
-
-fn object_list<'a>(
-    command: &'a str,
-    value: &'a str,
-) -> CommandResult<'a, ObjectList<'a, impl Parser<&'a str, Output = u16, Error = Error<&'a str>>>> {
-    let (_, (measure, channel)) = all_consuming((measure, channel)).parse(command)?;
-
-    let radix = 36; // TODO: to be taken from `channel` info somehow.
-    let digit = move |i| anychar.map_opt(|c| c.to_digit(radix)).parse(i);
-
-    let digit_ignoring_underscore =
-        move |i| digit.or(preceded(take_while(|c| c == '_'), digit)).parse(i);
-
-    let iter = iterator(
-        value,
-        (
-            cut_not_eof(digit_ignoring_underscore),
-            cut(digit_ignoring_underscore),
-        )
-            .map(move |(a, b)| (a * radix + b) as u16),
-    );
-
-    Ok(ObjectList {
-        measure,
-        channel,
-        iter,
-    })
 }
