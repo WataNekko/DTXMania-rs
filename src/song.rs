@@ -1,5 +1,6 @@
 mod db;
-pub mod parser;
+mod parser;
 pub mod scan;
 
 pub use db::*;
+pub use parser::*;

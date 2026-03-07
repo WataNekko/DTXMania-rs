@@ -9,10 +9,7 @@ use bevy::{
 
 use crate::{
     GameState,
-    song::{
-        SongDatabase, SongPlaying,
-        parser::{DtxChart, parse_dtx_chart},
-    },
+    song::{DtxChart, SongDatabase, SongPlaying, parse_dtx_chart},
 };
 
 pub struct GameplayPlugin;
