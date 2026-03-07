@@ -62,10 +62,7 @@ impl DtxChartParser {
             .parse(input)
             .map_err(|_| ParseError::NotCommand)?;
 
-        self.parse_command(command, value).map_err(|e| match e {
-            ParseError::Nom(_) => ParseError::InvalidCommandValue(value),
-            err => err,
-        })
+        self.parse_command(command, value)
     }
 
     fn parse_command<'a>(
@@ -136,13 +133,12 @@ impl DtxChartParser {
 enum ParseError<'a> {
     NotCommand,
     UnknownCommand(&'a str),
-    InvalidCommandValue(&'a str),
-    Nom(Err<Error<&'a str>>),
+    InvalidCommandValue(Err<Error<&'a str>>),
 }
 
 impl<'a> From<Err<Error<&'a str>>> for ParseError<'a> {
     fn from(value: Err<Error<&'a str>>) -> Self {
-        Self::Nom(value)
+        Self::InvalidCommandValue(value)
     }
 }
 
