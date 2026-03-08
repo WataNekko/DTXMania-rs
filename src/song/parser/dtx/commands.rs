@@ -1,6 +1,6 @@
 use nom::{
     Err, IResult, Parser,
-    bytes::complete::{is_not, tag, take, take_while},
+    bytes::complete::{is_not, tag, tag_no_case, take, take_while},
     character::complete::{anychar, not_line_ending, space0},
     combinator::{ParserIterator, all_consuming, cut, iterator, opt, recognize},
     error::{Error, ErrorKind},
@@ -30,12 +30,42 @@ pub fn command(input: &str) -> IResult<&str, (&str, &str)> {
 
 type CommandResult<'a, O> = Result<O, Err<Error<&'a str>>>;
 
-pub fn title<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, &'a str> {
-    if command != "TITLE" {
-        return Err(Err::Error(Error::new(command, ErrorKind::Tag)));
+fn parse_command_tag<'a>(command: &'a str, tag: &'static str) -> CommandResult<'a, ()> {
+    if command.eq_ignore_ascii_case(tag) {
+        Ok(())
+    } else {
+        Err(Err::Error(Error::new(command, ErrorKind::Tag)))
     }
+}
+
+fn parse_value_f64<'a>(value: &'a str) -> CommandResult<'a, f64> {
+    value
+        .parse()
+        .map_err(|_| Err::Failure(Error::new(value, ErrorKind::Float)))
+}
+
+pub fn title<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, &'a str> {
+    parse_command_tag(command, "TITLE")?;
 
     Ok(value)
+}
+
+pub fn bpm<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, (u16, f64)> {
+    let (_, zz) = all_consuming(preceded(
+        tag_no_case("BPM"),
+        opt(take(2usize)).map_res(|o| o.map_or(Ok(0), |zz| u16::from_str_radix(zz, 36))),
+    ))
+    .parse(command)?;
+
+    let value = parse_value_f64(value)?;
+
+    Ok((zz, value))
+}
+
+pub fn base_bpm<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, f64> {
+    parse_command_tag(command, "BASEBPM")?;
+
+    parse_value_f64(value)
 }
 
 pub fn object_desc<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, ObjectDesc<'a>> {

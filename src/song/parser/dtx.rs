@@ -1,6 +1,6 @@
 mod commands;
 
-use std::{cmp::Ordering, io};
+use std::{cmp::Ordering, collections::HashMap, io};
 
 use bevy::{prelude::warn, tasks::futures_lite::AsyncBufRead};
 use encoding_rs::SHIFT_JIS;
@@ -44,10 +44,27 @@ pub struct DtxChart {
     pub objects: Vec<Object>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct DtxChartParser {
     title: String,
+    curr_bpm: f64,
+    bpms: HashMap<u16, f64>,
+    base_bpm: f64,
     objects: Vec<Object>,
+}
+
+const DEFAULT_BPM: f64 = 120.0;
+
+impl Default for DtxChartParser {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            curr_bpm: DEFAULT_BPM,
+            bpms: HashMap::new(),
+            base_bpm: 0.0,
+            objects: Vec::new(),
+        }
+    }
 }
 
 impl DtxChartParser {
@@ -76,6 +93,14 @@ impl DtxChartParser {
     ) -> Result<bool, ParseError<'a>> {
         if let Some(title) = opt_err(title(command, value))? {
             self.title = title.to_string();
+        } else if let Some((zz, bpm)) = opt_err(bpm(command, value))? {
+            if zz == 0 {
+                self.curr_bpm = bpm;
+            } else {
+                self.bpms.insert(zz, bpm);
+            }
+        } else if let Some(base_bpm) = opt_err(base_bpm(command, value))? {
+            self.base_bpm = base_bpm;
         } else {
             return Ok(false);
         }
@@ -145,7 +170,13 @@ impl DtxChartParser {
     }
 
     fn compile(self) -> DtxChart {
-        let Self { title, mut objects } = self;
+        let Self {
+            title,
+            mut curr_bpm,
+            bpms,
+            base_bpm,
+            mut objects,
+        } = self;
 
         objects.sort();
 
