@@ -35,7 +35,7 @@ pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<Dt
         }
     }
 
-    Ok(parser.finalize())
+    Ok(parser.compile())
 }
 
 #[derive(Debug)]
@@ -72,42 +72,55 @@ impl DtxChartParser {
     ) -> Result<(), ParseError<'a>> {
         if let Some(title) = opt_err(title(command, value))? {
             self.title = title.to_string();
-        } else if let Some(ObjectList {
+        } else if let Some(ObjectDesc {
             measure,
             channel,
-            mut iter,
-        }) = opt_err(object_list(command, value))?
+            value,
+        }) = opt_err(object_desc(command, value))?
         {
-            // The strategy is to push new objects to the list as we parse through the iterator.
-            // But if it fails later, we'll roll back the list.
-
-            let old_len = self.objects.len();
-            let mut total_items = 0;
-
-            for (i, obj) in iter.by_ref().enumerate() {
-                total_items += 1;
-
-                if obj == 0 {
-                    // Only store non-spacing objects
-                    continue;
-                }
+            if channel == Channel::BarLength {
+                let value = value.into_float()?;
 
                 self.objects.push(Object {
                     measure,
-                    fraction: i as f64,
-                    channel,
-                    value: obj,
+                    channel: Channel::BarLength,
+                    fraction: value, // use fraction as the bar length value
+                    value: 0,
                 });
-            }
+            } else {
+                // The strategy is to push new objects to the list as we parse through the iterator.
+                // But if it fails later, we'll roll back the list.
 
-            iter.finish().inspect_err(|_| {
-                // Parsing failed. Roll back
-                self.objects.truncate(old_len);
-            })?;
+                let old_len = self.objects.len();
+                let mut total_items = 0;
 
-            // All good. Post-process the new objects
-            for new_obj in &mut self.objects[old_len..] {
-                new_obj.fraction /= total_items as f64;
+                let mut iter = value.into_iter();
+
+                for (i, obj) in iter.by_ref().enumerate() {
+                    total_items += 1;
+
+                    if obj == 0 {
+                        // Only store non-spacing objects
+                        continue;
+                    }
+
+                    self.objects.push(Object {
+                        measure,
+                        fraction: i as f64,
+                        channel,
+                        value: obj,
+                    });
+                }
+
+                iter.finish().inspect_err(|_| {
+                    // Parsing failed. Roll back
+                    self.objects.truncate(old_len);
+                })?;
+
+                // All good. Post-process the new objects
+                for new_obj in &mut self.objects[old_len..] {
+                    new_obj.fraction /= total_items as f64;
+                }
             }
         } else {
             return Err(ParseError::UnknownCommand(command));
@@ -116,13 +129,10 @@ impl DtxChartParser {
         Ok(())
     }
 
-    fn finalize(self) -> DtxChart {
+    fn compile(self) -> DtxChart {
         let Self { title, mut objects } = self;
 
-        objects.sort_by(|a, b| match a.measure.cmp(&b.measure) {
-            Ordering::Equal => a.fraction.total_cmp(&b.fraction),
-            other => other,
-        });
+        objects.sort();
 
         DtxChart { title, objects }
     }
@@ -145,7 +155,39 @@ impl<'a> From<Err<Error<&'a str>>> for ParseError<'a> {
 #[derive(Debug)]
 pub struct Object {
     measure: u16,
+    /// In case [Object::channel] is [Channel::BarLength], this field is used for the new bar length value.
     fraction: f64,
-    channel: u8,
+    channel: Channel,
     value: u16,
+}
+
+impl PartialEq for Object {
+    fn eq(&self, other: &Self) -> bool {
+        (self.measure, self.channel, self.value) == (other.measure, other.channel, other.value)
+            && self.fraction.total_cmp(&other.fraction).is_eq()
+    }
+}
+
+impl Eq for Object {}
+
+impl PartialOrd for Object {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Object {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.measure.cmp(&other.measure).then_with(|| {
+            match (
+                self.channel == Channel::BarLength,
+                other.channel == Channel::BarLength,
+            ) {
+                (true, true) => Ordering::Equal,
+                (self_is_bar_len, other_is_bar_len) => (!self_is_bar_len)
+                    .cmp(&(!other_is_bar_len))
+                    .then_with(|| self.fraction.total_cmp(&other.fraction)),
+            }
+        })
+    }
 }
