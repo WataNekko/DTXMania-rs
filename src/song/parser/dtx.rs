@@ -62,71 +62,86 @@ impl DtxChartParser {
             .parse(input)
             .map_err(|_| ParseError::NotCommand)?;
 
-        self.parse_command(command, value)
+        if self.try_parse_headers(command, value)? || self.try_parse_object_desc(command, value)? {
+            Ok(())
+        } else {
+            Err(ParseError::UnknownCommand(command))
+        }
     }
 
-    fn parse_command<'a>(
+    fn try_parse_headers<'a>(
         &mut self,
         command: &'a str,
         value: &'a str,
-    ) -> Result<(), ParseError<'a>> {
+    ) -> Result<bool, ParseError<'a>> {
         if let Some(title) = opt_err(title(command, value))? {
             self.title = title.to_string();
-        } else if let Some(ObjectDesc {
+        } else {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    fn try_parse_object_desc<'a>(
+        &mut self,
+        command: &'a str,
+        value: &'a str,
+    ) -> Result<bool, ParseError<'a>> {
+        let Some(ObjectDesc {
             measure,
             channel,
             value,
         }) = opt_err(object_desc(command, value))?
-        {
-            if channel == Channel::BarLength {
-                let value = value.into_float()?;
+        else {
+            return Ok(false);
+        };
+
+        if channel == Channel::BarLength {
+            let value = value.into_float()?;
+
+            self.objects.push(Object {
+                measure,
+                channel: Channel::BarLength,
+                fraction: value, // use fraction as the bar length value
+                value: 0,
+            });
+        } else {
+            // The strategy is to push new objects to the list as we parse through the iterator.
+            // But if it fails later, we'll roll back the list.
+
+            let old_len = self.objects.len();
+            let mut total_items = 0;
+
+            let mut iter = value.into_iter();
+
+            for (i, obj) in iter.by_ref().enumerate() {
+                total_items += 1;
+
+                if obj == 0 {
+                    // Only store non-spacing objects
+                    continue;
+                }
 
                 self.objects.push(Object {
                     measure,
-                    channel: Channel::BarLength,
-                    fraction: value, // use fraction as the bar length value
-                    value: 0,
+                    fraction: i as f64,
+                    channel,
+                    value: obj,
                 });
-            } else {
-                // The strategy is to push new objects to the list as we parse through the iterator.
-                // But if it fails later, we'll roll back the list.
-
-                let old_len = self.objects.len();
-                let mut total_items = 0;
-
-                let mut iter = value.into_iter();
-
-                for (i, obj) in iter.by_ref().enumerate() {
-                    total_items += 1;
-
-                    if obj == 0 {
-                        // Only store non-spacing objects
-                        continue;
-                    }
-
-                    self.objects.push(Object {
-                        measure,
-                        fraction: i as f64,
-                        channel,
-                        value: obj,
-                    });
-                }
-
-                iter.finish().inspect_err(|_| {
-                    // Parsing failed. Roll back
-                    self.objects.truncate(old_len);
-                })?;
-
-                // All good. Post-process the new objects
-                for new_obj in &mut self.objects[old_len..] {
-                    new_obj.fraction /= total_items as f64;
-                }
             }
-        } else {
-            return Err(ParseError::UnknownCommand(command));
+
+            iter.finish().inspect_err(|_| {
+                // Parsing failed. Roll back
+                self.objects.truncate(old_len);
+            })?;
+
+            // All good. Post-process the new objects
+            for new_obj in &mut self.objects[old_len..] {
+                new_obj.fraction /= total_items as f64;
+            }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     fn compile(self) -> DtxChart {
