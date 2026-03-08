@@ -41,7 +41,14 @@ pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<Dt
 #[derive(Debug)]
 pub struct DtxChart {
     pub title: String,
-    pub objects: Vec<Object>,
+    pub chips: Vec<Chip>,
+}
+
+#[derive(Debug)]
+pub struct Chip {
+    pub time_ms: f64,
+    pub channel: Channel,
+    pub value: u16,
 }
 
 #[derive(Debug)]
@@ -65,6 +72,15 @@ impl Default for DtxChartParser {
             objects: Vec::new(),
         }
     }
+}
+
+#[derive(Debug)]
+struct Object {
+    measure: u16,
+    /// In case [Object::channel] is [Channel::BarLength], this field is used for the new bar length value.
+    fraction: f64,
+    channel: Channel,
+    value: u16,
 }
 
 impl DtxChartParser {
@@ -177,10 +193,72 @@ impl DtxChartParser {
             base_bpm,
             mut objects,
         } = self;
+        let mut curr_bar_len = 1.0;
 
         objects.sort();
 
-        DtxChart { title, objects }
+        let calc_measure_time_ms = |bar_len, bpm| {
+            let beats_in_measure = bar_len * 4.0;
+            let beat_time_ms = 60_000.0 / bpm;
+            beats_in_measure * beat_time_ms
+        };
+
+        // These anchors are only updated when bar length or BPM change. Time of the chips are
+        // calculated according to these anchors instead of the previous chip's time to reduce
+        // time drift caused by accumulated float error.
+        let mut anchor_measure = 0.0;
+        let mut anchor_measure_time_ms = calc_measure_time_ms(curr_bar_len, curr_bpm);
+        let mut anchor_time_ms = 0.0;
+
+        let mut chips = Vec::new();
+
+        for Object {
+            measure,
+            fraction,
+            channel,
+            value,
+        } in objects
+        {
+            let measure =
+                (measure as f64) + fraction * ((channel != Channel::BarLength) as u8 as f64);
+
+            let measure_diff = measure - anchor_measure;
+
+            let time_diff_ms = measure_diff * anchor_measure_time_ms;
+            let time_ms = anchor_time_ms + time_diff_ms;
+
+            let anchor_should_change = match channel {
+                Channel::BarLength => {
+                    let bar_len = fraction;
+                    std::mem::replace(&mut curr_bar_len, bar_len) != bar_len
+                }
+                Channel::Bpm => {
+                    let bpm = base_bpm + value as f64;
+                    std::mem::replace(&mut curr_bpm, bpm) != bpm
+                }
+                Channel::BpmExt => {
+                    let bpm = base_bpm + bpms.get(&value).unwrap_or(&DEFAULT_BPM);
+                    std::mem::replace(&mut curr_bpm, bpm) != bpm
+                }
+                _ => {
+                    chips.push(Chip {
+                        time_ms,
+                        channel,
+                        value,
+                    });
+
+                    false
+                }
+            };
+
+            if anchor_should_change {
+                anchor_measure = measure;
+                anchor_measure_time_ms = calc_measure_time_ms(curr_bar_len, curr_bpm);
+                anchor_time_ms = time_ms;
+            }
+        }
+
+        DtxChart { title, chips }
     }
 }
 
@@ -196,15 +274,6 @@ impl<'a> From<Err<Error<&'a str>>> for ParseError<'a> {
     fn from(value: Err<Error<&'a str>>) -> Self {
         Self::InvalidCommandValue(value)
     }
-}
-
-#[derive(Debug)]
-pub struct Object {
-    measure: u16,
-    /// In case [Object::channel] is [Channel::BarLength], this field is used for the new bar length value.
-    fraction: f64,
-    channel: Channel,
-    value: u16,
 }
 
 impl PartialEq for Object {

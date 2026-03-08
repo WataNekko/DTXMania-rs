@@ -110,6 +110,17 @@ pub enum Channel {
     BarLength = 0x02,
     Bpm = 0x03,
     BpmExt = 0x08,
+
+    HiHatClose = 0x11,
+    Snare = 0x12,
+    BassDrum = 0x13,
+    HighTom = 0x14,
+    LowTom = 0x15,
+    Cymbal = 0x16,
+    FloorTom = 0x17,
+    HiHatOpen = 0x18,
+    RideCymbal = 0x19,
+    LeftCymbal = 0x1A,
 }
 
 impl Channel {
