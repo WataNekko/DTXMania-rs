@@ -2,7 +2,7 @@ mod commands;
 
 use std::{cmp::Ordering, collections::HashMap, io};
 
-use bevy::{prelude::warn, tasks::futures_lite::AsyncBufRead};
+use bevy::{prelude::warn, reflect::Reflect, tasks::futures_lite::AsyncBufRead};
 use encoding_rs::SHIFT_JIS;
 use nom::{
     Err, Parser,
@@ -38,13 +38,13 @@ pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<Dt
     Ok(parser.compile())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 pub struct DtxChart {
     pub title: String,
     pub chips: Vec<Chip>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 pub struct Chip {
     pub time_ms: f64,
     pub channel: Channel,

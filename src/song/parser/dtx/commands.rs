@@ -1,3 +1,4 @@
+use bevy::reflect::Reflect;
 use nom::{
     Err, IResult, Parser,
     bytes::complete::{is_not, tag, tag_no_case, take, take_while},
@@ -104,7 +105,7 @@ fn channel(input: &str) -> IResult<&str, Channel> {
         .ok_or_else(|| Err::Failure(Error::new(input, ErrorKind::MapOpt)))
 }
 
-#[derive(FromRepr, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(FromRepr, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 #[repr(u8)]
 pub enum Channel {
     BarLength = 0x02,

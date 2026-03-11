@@ -9,8 +9,8 @@ use crate::GameState;
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         EguiPlugin::default(),
-        StateInspectorPlugin::<GameState>::default().run_if(toggle_inspector()),
         WorldInspectorPlugin::default().run_if(toggle_inspector()),
+        StateInspectorPlugin::<GameState>::default().run_if(toggle_inspector()),
     ));
 }
 
