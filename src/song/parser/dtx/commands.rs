@@ -7,7 +7,7 @@ use nom::{
     error::{Error, ErrorKind},
     sequence::{preceded, separated_pair},
 };
-use strum::FromRepr;
+use strum::{Display, FromRepr};
 
 use crate::utils::parser::*;
 
@@ -105,7 +105,7 @@ fn channel(input: &str) -> IResult<&str, Channel> {
         .ok_or_else(|| Err::Failure(Error::new(input, ErrorKind::MapOpt)))
 }
 
-#[derive(FromRepr, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[derive(FromRepr, Display, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 #[repr(u8)]
 pub enum Channel {
     BarLength = 0x02,
@@ -122,6 +122,8 @@ pub enum Channel {
     HiHatOpen = 0x18,
     RideCymbal = 0x19,
     LeftCymbal = 0x1A,
+    LeftPedal = 0x1B,
+    LeftBass = 0x1C,
 }
 
 impl Channel {

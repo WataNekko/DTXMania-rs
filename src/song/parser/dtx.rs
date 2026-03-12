@@ -14,6 +14,7 @@ use nom::{
 
 use crate::utils::{encoding::AsyncBufReadEncodingExt, parser::*};
 
+pub use self::commands::Channel;
 use self::commands::*;
 
 pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<DtxChart> {
@@ -46,7 +47,7 @@ pub struct DtxChart {
 
 #[derive(Debug, Reflect)]
 pub struct Chip {
-    pub time_ms: f64,
+    pub time_sec: f64,
     pub channel: Channel,
     pub value: u16,
 }
@@ -197,18 +198,18 @@ impl DtxChartParser {
 
         objects.sort();
 
-        let calc_measure_time_ms = |bar_len, bpm| {
+        let calc_measure_time = |bar_len, bpm| {
             let beats_in_measure = bar_len * 4.0;
-            let beat_time_ms = 60_000.0 / bpm;
-            beats_in_measure * beat_time_ms
+            let beat_time = 60.0 / bpm;
+            beats_in_measure * beat_time
         };
 
         // These anchors are only updated when bar length or BPM change. Time of the chips are
         // calculated according to these anchors instead of the previous chip's time to reduce
         // time drift caused by accumulated float error.
         let mut anchor_measure = 0.0;
-        let mut anchor_measure_time_ms = calc_measure_time_ms(curr_bar_len, curr_bpm);
-        let mut anchor_time_ms = 0.0;
+        let mut anchor_measure_time = calc_measure_time(curr_bar_len, curr_bpm);
+        let mut anchor_time = 0.0;
 
         let mut chips = Vec::new();
 
@@ -224,8 +225,8 @@ impl DtxChartParser {
 
             let measure_diff = measure - anchor_measure;
 
-            let time_diff_ms = measure_diff * anchor_measure_time_ms;
-            let time_ms = anchor_time_ms + time_diff_ms;
+            let time_diff = measure_diff * anchor_measure_time;
+            let time_sec = anchor_time + time_diff;
 
             let anchor_should_change = match channel {
                 Channel::BarLength => {
@@ -242,7 +243,7 @@ impl DtxChartParser {
                 }
                 _ => {
                     chips.push(Chip {
-                        time_ms,
+                        time_sec,
                         channel,
                         value,
                     });
@@ -253,8 +254,8 @@ impl DtxChartParser {
 
             if anchor_should_change {
                 anchor_measure = measure;
-                anchor_measure_time_ms = calc_measure_time_ms(curr_bar_len, curr_bpm);
-                anchor_time_ms = time_ms;
+                anchor_measure_time = calc_measure_time(curr_bar_len, curr_bpm);
+                anchor_time = time_sec;
             }
         }
 
