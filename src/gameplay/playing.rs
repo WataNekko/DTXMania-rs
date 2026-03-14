@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use bevy::{input::common_conditions::input_just_pressed, prelude::*, time::Stopwatch};
+use bevy::{
+    input::{common_conditions::input_just_pressed, keyboard::Key},
+    prelude::*,
+    time::Stopwatch,
+};
 
 use crate::{
     gameplay::{GameplayState, LoadedSong, Return},
@@ -24,7 +28,7 @@ impl Plugin for PlayingPlugin {
             (
                 update_chips_pos,
                 (|mut commands: Commands| commands.trigger(Return))
-                    .run_if(input_just_pressed(KeyCode::Backquote)),
+                    .run_if(input_just_pressed(Key::Escape)),
             )
                 .run_if(in_state(GameplayState::Playing)),
         );
