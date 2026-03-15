@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
-use bevy::reflect::Reflect;
+use bevy::{asset::Handle, reflect::Reflect};
+use bevy_kira_audio::AudioSource;
 
 /// Partially interpreted/processed info on what feature/chip the associated object data is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,5 +123,8 @@ pub struct ChipInfo {
 /// chip would associate the event with a sound.)
 #[derive(Debug, Reflect)]
 pub enum Chip {
-    Sound { chip: SoundChip, audio: u16 },
+    Sound {
+        chip: SoundChip,
+        audio: Handle<AudioSource>,
+    },
 }

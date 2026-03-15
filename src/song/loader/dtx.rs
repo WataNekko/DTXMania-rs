@@ -4,7 +4,9 @@ mod parsers;
 use std::{collections::HashMap, io, path::Path};
 
 use async_fs::File;
-use bevy::{prelude::*, reflect::Reflect, tasks::futures_lite::io::BufReader};
+use bevy::{
+    asset::UntypedAssetId, prelude::*, reflect::Reflect, tasks::futures_lite::io::BufReader,
+};
 use encoding_rs::SHIFT_JIS;
 use nom::{
     Err, Parser,
@@ -23,8 +25,12 @@ use self::{
 
 pub use self::chips::{Chip, ChipInfo, DrumNote, SoundChip};
 
-pub async fn load_dtx_chart(path: impl AsRef<Path>) -> io::Result<DtxChart> {
-    let file = File::open(path.as_ref()).await?;
+pub async fn load_dtx_chart(
+    path: impl AsRef<Path>,
+    asset_server: &AssetServer,
+) -> io::Result<DtxChart> {
+    let path = path.as_ref();
+    let file = File::open(path).await?;
     let mut reader = BufReader::new(file).with_encoding(SHIFT_JIS);
 
     let mut parser = DtxChartParser::default();
@@ -43,7 +49,18 @@ pub async fn load_dtx_chart(path: impl AsRef<Path>) -> io::Result<DtxChart> {
         }
     }
 
-    Ok(parser.compile())
+    let base_path = path
+        .parent()
+        .expect("Since path sure is a file at this point, getting the parent dir shouldn't fail.");
+
+    let (chart, asset_ids) = parser.compile(base_path, asset_server);
+
+    // Wait for all the assets to finish loading
+    for id in asset_ids {
+        let _ = asset_server.wait_for_asset_id(id).await;
+    }
+
+    Ok(chart)
 }
 
 #[derive(Debug, Reflect)]
@@ -58,6 +75,7 @@ struct DtxChartParser {
     bpm: f64,
     bpm_list: HashMap<u16, f64>,
     base_bpm: f64,
+    audio_list: HashMap<u16, String>,
     objects: Vec<Object>,
 }
 
@@ -70,6 +88,7 @@ impl Default for DtxChartParser {
             bpm: DEFAULT_BPM,
             bpm_list: HashMap::new(),
             base_bpm: 0.0,
+            audio_list: HashMap::new(),
             objects: Vec::new(),
         }
     }
@@ -109,6 +128,8 @@ impl DtxChartParser {
             }
         } else if let Some(base_bpm) = opt_err(base_bpm(command, value))? {
             self.base_bpm = base_bpm;
+        } else if let Some((zz, name)) = opt_err(wav(command, value))? {
+            self.audio_list.insert(zz, name.to_string());
         } else {
             return Ok(false);
         }
@@ -177,12 +198,17 @@ impl DtxChartParser {
         Ok(true)
     }
 
-    fn compile(self) -> DtxChart {
+    fn compile(
+        self,
+        base_path: &Path,
+        asset_server: &AssetServer,
+    ) -> (DtxChart, Vec<UntypedAssetId>) {
         let Self {
             title,
             bpm: mut curr_bpm,
             bpm_list,
             base_bpm,
+            audio_list,
             mut objects,
         } = self;
         let mut curr_bar_len = 1.0;
@@ -203,6 +229,8 @@ impl DtxChartParser {
         let mut anchor_time = 0.0;
 
         let mut chips = Vec::new();
+
+        let mut audio_handles = HashMap::new();
 
         for Object {
             measure,
@@ -233,10 +261,25 @@ impl DtxChartParser {
                     std::mem::replace(&mut curr_bpm, bpm) != bpm
                 }
                 Channel::Sound(chip) => {
+                    let audio = audio_handles
+                        .entry(value)
+                        .or_insert_with(|| {
+                            audio_list
+                                .get(&value)
+                                .map(|name| base_path.join(name))
+                                // TODO: On case-sensitive file systems, if the case of the file
+                                // name in the chart differs from the real name on disk, this would
+                                // fail. Resolve this with a custom asset reader?
+                                .map(|path| asset_server.load(path))
+                                .unwrap_or_default()
+                        })
+                        .clone();
+
                     chips.push(ChipInfo {
                         time_sec,
-                        chip: Chip::Sound { chip, audio: value },
+                        chip: Chip::Sound { chip, audio },
                     });
+
                     false
                 }
             };
@@ -248,7 +291,9 @@ impl DtxChartParser {
             }
         }
 
-        DtxChart { title, chips }
+        let asset_ids = Vec::from_iter(audio_handles.into_values().map(|h| h.id().untyped()));
+
+        (DtxChart { title, chips }, asset_ids)
     }
 }
 

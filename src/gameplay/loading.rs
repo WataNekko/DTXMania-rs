@@ -62,6 +62,7 @@ fn load_song(
     song_playing: Res<SongPlaying>,
     loaded_song: Option<Res<LoadedSong>>,
     song_db: Res<SongDatabase>,
+    asset_server: Res<AssetServer>,
 ) {
     let id = song_playing.db_idx;
     if loaded_song.is_some_and(|loaded| loaded.id == id) {
@@ -71,8 +72,10 @@ fn load_song(
     let song_path = song_db[id].clone();
     info!("Loading song: {}", song_path.display());
 
+    let asset_server = asset_server.clone();
+
     let task = IoTaskPool::get().spawn(async move {
-        load_dtx_chart(song_path)
+        load_dtx_chart(song_path, &asset_server)
             .await
             .map(|chart| LoadedSong { id, chart })
     });

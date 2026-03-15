@@ -37,6 +37,15 @@ fn parse_command_tag<'a>(command: &'a str, tag: &'static str) -> CommandResult<'
     }
 }
 
+fn parse_command_tag_zz<'a>(command: &'a str, tag: &'static str) -> CommandResult<'a, u16> {
+    all_consuming(preceded(
+        tag_no_case(tag),
+        take(2usize).map_res(|zz| u16::from_str_radix(zz, 36)),
+    ))
+    .parse(command)
+    .map(|(_, zz)| zz)
+}
+
 fn parse_value_f64<'a>(value: &'a str) -> CommandResult<'a, f64> {
     value
         .parse()
@@ -65,6 +74,12 @@ pub fn base_bpm<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, f64> 
     parse_command_tag(command, "BASEBPM")?;
 
     parse_value_f64(value)
+}
+
+pub fn wav<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, (u16, &'a str)> {
+    let zz = parse_command_tag_zz(command, "WAV")?;
+
+    Ok((zz, value))
 }
 
 pub fn object_desc<'a>(command: &'a str, value: &'a str) -> CommandResult<'a, ObjectDesc<'a>> {
