@@ -1,8 +1,10 @@
-mod commands;
+mod chips;
+mod parsers;
 
-use std::{cmp::Ordering, collections::HashMap, io};
+use std::{collections::HashMap, io, path::Path};
 
-use bevy::{prelude::warn, reflect::Reflect, tasks::futures_lite::AsyncBufRead};
+use async_fs::File;
+use bevy::{prelude::*, reflect::Reflect, tasks::futures_lite::io::BufReader};
 use encoding_rs::SHIFT_JIS;
 use nom::{
     Err, Parser,
@@ -14,11 +16,16 @@ use nom::{
 
 use crate::utils::{encoding::AsyncBufReadEncodingExt, parser::*};
 
-pub use self::commands::Channel;
-use self::commands::*;
+use self::{
+    chips::{Channel, Object},
+    parsers::*,
+};
 
-pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<DtxChart> {
-    let mut reader = reader.with_encoding(SHIFT_JIS);
+pub use self::chips::{Chip, ChipInfo, DrumNote, SoundChip};
+
+pub async fn load_dtx_chart(path: impl AsRef<Path>) -> io::Result<DtxChart> {
+    let file = File::open(path.as_ref()).await?;
+    let mut reader = BufReader::new(file).with_encoding(SHIFT_JIS);
 
     let mut parser = DtxChartParser::default();
     let mut line = String::new();
@@ -42,21 +49,14 @@ pub async fn parse_dtx_chart(reader: impl AsyncBufRead + Unpin) -> io::Result<Dt
 #[derive(Debug, Reflect)]
 pub struct DtxChart {
     pub title: String,
-    pub chips: Vec<Chip>,
-}
-
-#[derive(Debug, Reflect)]
-pub struct Chip {
-    pub time_sec: f64,
-    pub channel: Channel,
-    pub value: u16,
+    pub chips: Vec<ChipInfo>,
 }
 
 #[derive(Debug)]
 struct DtxChartParser {
     title: String,
-    curr_bpm: f64,
-    bpms: HashMap<u16, f64>,
+    bpm: f64,
+    bpm_list: HashMap<u16, f64>,
     base_bpm: f64,
     objects: Vec<Object>,
 }
@@ -67,21 +67,12 @@ impl Default for DtxChartParser {
     fn default() -> Self {
         Self {
             title: String::new(),
-            curr_bpm: DEFAULT_BPM,
-            bpms: HashMap::new(),
+            bpm: DEFAULT_BPM,
+            bpm_list: HashMap::new(),
             base_bpm: 0.0,
             objects: Vec::new(),
         }
     }
-}
-
-#[derive(Debug)]
-struct Object {
-    measure: u16,
-    /// In case [Object::channel] is [Channel::BarLength], this field is used for the new bar length value.
-    fraction: f64,
-    channel: Channel,
-    value: u16,
 }
 
 impl DtxChartParser {
@@ -112,9 +103,9 @@ impl DtxChartParser {
             self.title = title.to_string();
         } else if let Some((zz, bpm)) = opt_err(bpm(command, value))? {
             if zz == 0 {
-                self.curr_bpm = bpm;
+                self.bpm = bpm;
             } else {
-                self.bpms.insert(zz, bpm);
+                self.bpm_list.insert(zz, bpm);
             }
         } else if let Some(base_bpm) = opt_err(base_bpm(command, value))? {
             self.base_bpm = base_bpm;
@@ -189,8 +180,8 @@ impl DtxChartParser {
     fn compile(self) -> DtxChart {
         let Self {
             title,
-            mut curr_bpm,
-            bpms,
+            bpm: mut curr_bpm,
+            bpm_list,
             base_bpm,
             mut objects,
         } = self;
@@ -238,16 +229,14 @@ impl DtxChartParser {
                     std::mem::replace(&mut curr_bpm, bpm) != bpm
                 }
                 Channel::BpmExt => {
-                    let bpm = base_bpm + bpms.get(&value).unwrap_or(&DEFAULT_BPM);
+                    let bpm = base_bpm + bpm_list.get(&value).unwrap_or(&DEFAULT_BPM);
                     std::mem::replace(&mut curr_bpm, bpm) != bpm
                 }
-                _ => {
-                    chips.push(Chip {
+                Channel::Sound(chip) => {
+                    chips.push(ChipInfo {
                         time_sec,
-                        channel,
-                        value,
+                        chip: Chip::Sound { chip, audio: value },
                     });
-
                     false
                 }
             };
@@ -274,36 +263,5 @@ enum ParseError<'a> {
 impl<'a> From<Err<Error<&'a str>>> for ParseError<'a> {
     fn from(value: Err<Error<&'a str>>) -> Self {
         Self::InvalidCommandValue(value)
-    }
-}
-
-impl PartialEq for Object {
-    fn eq(&self, other: &Self) -> bool {
-        (self.measure, self.channel, self.value) == (other.measure, other.channel, other.value)
-            && self.fraction.total_cmp(&other.fraction).is_eq()
-    }
-}
-
-impl Eq for Object {}
-
-impl PartialOrd for Object {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Object {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.measure.cmp(&other.measure).then_with(|| {
-            match (
-                self.channel == Channel::BarLength,
-                other.channel == Channel::BarLength,
-            ) {
-                (true, true) => Ordering::Equal,
-                (self_is_bar_len, other_is_bar_len) => (!self_is_bar_len)
-                    .cmp(&(!other_is_bar_len))
-                    .then_with(|| self.fraction.total_cmp(&other.fraction)),
-            }
-        })
     }
 }

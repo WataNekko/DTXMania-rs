@@ -1,4 +1,3 @@
-use bevy::reflect::Reflect;
 use nom::{
     Err, IResult, Parser,
     bytes::complete::{is_not, tag, tag_no_case, take, take_while},
@@ -7,9 +6,8 @@ use nom::{
     error::{Error, ErrorKind},
     sequence::{preceded, separated_pair},
 };
-use strum::{Display, FromRepr};
 
-use crate::utils::parser::*;
+use crate::{song::loader::dtx::chips::Channel, utils::parser::*};
 
 pub fn comment(input: &str) -> IResult<&str, &str> {
     recognize((tag(";"), not_line_ending)).parse(input)
@@ -100,39 +98,10 @@ fn channel(input: &str) -> IResult<&str, Channel> {
         .map_res(|cc| u8::from_str_radix(cc, 16))
         .parse(input)?;
 
-    Channel::from_repr(channel)
+    channel
+        .try_into()
         .map(|ch| (rem, ch))
-        .ok_or_else(|| Err::Failure(Error::new(input, ErrorKind::MapOpt)))
-}
-
-#[derive(FromRepr, Display, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
-#[repr(u8)]
-pub enum Channel {
-    BarLength = 0x02,
-    Bpm = 0x03,
-    BpmExt = 0x08,
-
-    HiHatClose = 0x11,
-    Snare = 0x12,
-    BassDrum = 0x13,
-    HighTom = 0x14,
-    LowTom = 0x15,
-    Cymbal = 0x16,
-    FloorTom = 0x17,
-    HiHatOpen = 0x18,
-    RideCymbal = 0x19,
-    LeftCymbal = 0x1A,
-    LeftPedal = 0x1B,
-    LeftBass = 0x1C,
-}
-
-impl Channel {
-    fn value_radix(&self) -> u32 {
-        match self {
-            Channel::Bpm => 16,
-            _ => 36,
-        }
-    }
+        .map_err(|_| Err::Failure(Error::new(input, ErrorKind::MapRes)))
 }
 
 pub struct ObjectValue<'a>(Channel, &'a str);

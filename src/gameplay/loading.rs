@@ -1,14 +1,13 @@
 use std::io;
 
-use async_fs::File;
 use bevy::{
     prelude::*,
-    tasks::{IoTaskPool, Task, futures::check_ready, futures_lite::io::BufReader},
+    tasks::{IoTaskPool, Task, futures::check_ready},
 };
 
 use crate::{
     gameplay::{GameplayState, LoadedSong, Return},
-    song::{SongDatabase, SongPlaying, parse_dtx_chart},
+    song::{SongDatabase, SongPlaying, load_dtx_chart},
 };
 
 pub struct LoadingPlugin;
@@ -73,10 +72,7 @@ fn load_song(
     info!("Loading song: {}", song_path.display());
 
     let task = IoTaskPool::get().spawn(async move {
-        let file = File::open(song_path).await?;
-        let reader = BufReader::new(file);
-
-        parse_dtx_chart(reader)
+        load_dtx_chart(song_path)
             .await
             .map(|chart| LoadedSong { id, chart })
     });

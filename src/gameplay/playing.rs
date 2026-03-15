@@ -8,7 +8,7 @@ use bevy::{
 
 use crate::{
     gameplay::{GameplayState, LoadedSong, Return},
-    song::Channel,
+    song::{Chip, DrumNote, SoundChip},
 };
 
 pub struct PlayingPlugin;
@@ -38,7 +38,7 @@ impl Plugin for PlayingPlugin {
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 struct ChipLaneContainer {
-    channel: Channel,
+    lane_note: DrumNote,
 }
 
 #[derive(Component, Deref)]
@@ -50,18 +50,18 @@ struct PlaybackTime(Stopwatch);
 fn setup(mut commands: Commands, song: Res<LoadedSong>) {
     let title = song.chart.title.clone();
     let lanes = [
-        Channel::HiHatClose,
-        Channel::Snare,
-        Channel::BassDrum,
-        Channel::HighTom,
-        Channel::LowTom,
-        Channel::Cymbal,
-        Channel::FloorTom,
-        Channel::HiHatOpen,
-        Channel::RideCymbal,
-        Channel::LeftCymbal,
-        Channel::LeftPedal,
-        Channel::LeftBass,
+        DrumNote::HiHatClose,
+        DrumNote::Snare,
+        DrumNote::BassDrum,
+        DrumNote::HighTom,
+        DrumNote::LowTom,
+        DrumNote::Cymbal,
+        DrumNote::FloorTom,
+        DrumNote::HiHatOpen,
+        DrumNote::RideCymbal,
+        DrumNote::LeftCymbal,
+        DrumNote::LeftPedal,
+        DrumNote::LeftBass,
     ];
 
     commands.spawn((
@@ -90,7 +90,7 @@ fn setup(mut commands: Commands, song: Res<LoadedSong>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgb(0.0, 0.0, 0.1)),
-                Children::spawn(SpawnIter(lanes.into_iter().map(|channel| {
+                Children::spawn(SpawnIter(lanes.into_iter().map(|lane_note| {
                     (
                         Node {
                             width: px(54),
@@ -102,9 +102,9 @@ fn setup(mut commands: Commands, song: Res<LoadedSong>) {
                         },
                         children![
                             (Text::new({
-                                let mut ch = channel.to_string();
-                                ch.retain(|c| c.is_uppercase());
-                                ch
+                                let mut lane = format!("{:?}", lane_note);
+                                lane.retain(|c| c.is_uppercase());
+                                lane
                             })),
                             (
                                 Node {
@@ -120,7 +120,7 @@ fn setup(mut commands: Commands, song: Res<LoadedSong>) {
                                 BackgroundColor(Color::srgb(0.1, 0.0, 0.0)),
                             ),
                             (
-                                Name::new(format!("{} lane", channel)),
+                                Name::new(format!("{:?} lane", lane_note)),
                                 Node {
                                     position_type: PositionType::Absolute,
                                     bottom: px(0),
@@ -129,7 +129,7 @@ fn setup(mut commands: Commands, song: Res<LoadedSong>) {
                                     align_items: AlignItems::Center,
                                     ..default()
                                 },
-                                ChipLaneContainer { channel },
+                                ChipLaneContainer { lane_note },
                             )
                         ],
                     )
@@ -146,24 +146,31 @@ fn spawn_chips(
 ) {
     let lanes: HashMap<_, _> = lane_query
         .into_iter()
-        .map(|(lane, entity)| (lane.channel, entity))
+        .map(|(lane, entity)| (lane.lane_note, entity))
         .collect();
 
-    for chip in &song.chart.chips {
-        if let Some(&lane) = lanes.get(&chip.channel) {
-            commands.entity(lane).with_children(|parent| {
-                parent.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        width: px(54),
-                        height: px(10),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.8, 0.8, 0.0)),
-                    ChipTime(chip.time_sec),
-                ));
-            });
-        }
+    for info in &song.chart.chips {
+        let Chip::Sound {
+            chip: SoundChip::Drum(lane_note),
+            ..
+        } = info.chip;
+
+        let Some(&lane) = lanes.get(&lane_note) else {
+            continue;
+        };
+
+        commands.entity(lane).with_children(|parent| {
+            parent.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: px(54),
+                    height: px(10),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.8, 0.8, 0.0)),
+                ChipTime(info.time_sec),
+            ));
+        });
     }
 
     commands.insert_resource(PlaybackTime(Stopwatch::new()));

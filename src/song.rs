@@ -1,6 +1,6 @@
 mod db;
-mod parser;
+mod loader;
 pub mod scan;
 
 pub use db::*;
-pub use parser::*;
+pub use loader::*;
