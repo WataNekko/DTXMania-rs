@@ -7,8 +7,8 @@ use bevy::{
 };
 
 use crate::{
+    assets::song::{Chip, DrumNote, SoundChip},
     gameplay::{GameplayState, LoadedSong, Return},
-    song::{Chip, DrumNote, SoundChip},
 };
 
 pub struct PlayingPlugin;

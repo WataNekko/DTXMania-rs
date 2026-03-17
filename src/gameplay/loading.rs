@@ -6,8 +6,8 @@ use bevy::{
 };
 
 use crate::{
+    assets::song::{SongDatabase, SongPlaying, load_dtx_chart},
     gameplay::{GameplayState, LoadedSong, Return},
-    song::{SongDatabase, SongPlaying, load_dtx_chart},
 };
 
 pub struct LoadingPlugin;

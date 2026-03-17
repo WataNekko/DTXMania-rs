@@ -5,8 +5,8 @@ use bevy::prelude::*;
 
 use crate::{
     GameState,
+    assets::song::DtxChart,
     gameplay::{loading::LoadingPlugin, playing::PlayingPlugin},
-    song::DtxChart,
 };
 
 pub struct GameplayPlugin;

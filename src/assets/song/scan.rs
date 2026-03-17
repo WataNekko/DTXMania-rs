@@ -6,7 +6,7 @@ use bevy::{
     tasks::{IoTaskPool, futures_lite::StreamExt},
 };
 
-use crate::song::SongDatabase;
+use crate::assets::song::SongDatabase;
 
 pub struct SongScanPlugin;
 

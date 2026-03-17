@@ -1,14 +1,14 @@
+mod assets;
 #[cfg(feature = "dev")]
 mod debug;
 mod gameplay;
 mod menu;
-mod song;
 mod utils;
 
 use bevy::prelude::*;
 
 use crate::{
-    gameplay::GameplayPlugin, menu::song_select::SongSelectPlugin, song::scan::SongScanPlugin,
+    assets::song::SongScanPlugin, gameplay::GameplayPlugin, menu::song_select::SongSelectPlugin,
 };
 
 pub struct AppPlugin;

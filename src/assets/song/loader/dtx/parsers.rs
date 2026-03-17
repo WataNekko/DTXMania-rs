@@ -7,7 +7,7 @@ use nom::{
     sequence::{preceded, separated_pair},
 };
 
-use crate::{song::loader::dtx::chips::Channel, utils::parser::*};
+use crate::{assets::song::loader::dtx::chips::Channel, utils::parser::*};
 
 pub fn comment(input: &str) -> IResult<&str, &str> {
     recognize((tag(";"), not_line_ending)).parse(input)

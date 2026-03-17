@@ -1,6 +1,7 @@
 mod db;
 mod loader;
-pub mod scan;
+mod scan;
 
 pub use db::*;
 pub use loader::*;
+pub use scan::*;

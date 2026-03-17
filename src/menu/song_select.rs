@@ -2,7 +2,7 @@ use bevy::{input::common_conditions::input_just_pressed, prelude::*};
 
 use crate::{
     GameState,
-    song::{SongDatabase, SongPlaying},
+    assets::song::{SongDatabase, SongPlaying},
 };
 
 pub struct SongSelectPlugin;
