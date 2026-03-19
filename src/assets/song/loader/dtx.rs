@@ -5,7 +5,10 @@ use std::{collections::HashMap, io, path::Path};
 
 use async_fs::File;
 use bevy::{
-    asset::UntypedAssetId, prelude::*, reflect::Reflect, tasks::futures_lite::io::BufReader,
+    asset::{AssetPath, UntypedAssetId},
+    prelude::*,
+    reflect::Reflect,
+    tasks::futures_lite::io::BufReader,
 };
 use encoding_rs::SHIFT_JIS;
 use nom::{
@@ -16,7 +19,10 @@ use nom::{
     sequence::terminated,
 };
 
-use crate::utils::{encoding::AsyncBufReadEncodingExt, parser::*};
+use crate::{
+    assets::DTX_SOURCE_ID,
+    utils::{encoding::AsyncBufReadEncodingExt, parser::*},
+};
 
 use self::{
     chips::{Channel, Object},
@@ -267,10 +273,10 @@ impl DtxChartParser {
                             audio_list
                                 .get(&value)
                                 .map(|name| base_path.join(name))
-                                // TODO: On case-sensitive file systems, if the case of the file
-                                // name in the chart differs from the real name on disk, this would
-                                // fail. Resolve this with a custom asset reader?
-                                .map(|path| asset_server.load(path))
+                                .map(|path| {
+                                    asset_server
+                                        .load(AssetPath::from(path).with_source(DTX_SOURCE_ID))
+                                })
                                 .unwrap_or_default()
                         })
                         .clone();

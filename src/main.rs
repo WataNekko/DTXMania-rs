@@ -1,10 +1,11 @@
 use bevy::{asset::UnapprovedPathMode, prelude::*};
 use bevy_kira_audio::AudioPlugin;
-use dtxmania_rs::AppPlugin;
+use dtxmania_rs::{AppPlugin, DtxAssetPlugin};
 
 fn main() -> AppExit {
     App::new()
         .add_plugins((
+            DtxAssetPlugin,
             DefaultPlugins.set(AssetPlugin {
                 // DTXMania may read charts and files from arbitrary locations set by DTXPath in
                 // Config.ini. This design fundamentally implies security risks.
