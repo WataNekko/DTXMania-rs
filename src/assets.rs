@@ -16,7 +16,7 @@ use bevy::{
         PathStream, Reader,
     },
     prelude::*,
-    tasks::futures_lite::StreamExt,
+    tasks::{IoTaskPool, futures_lite::StreamExt},
 };
 use dashmap::DashMap;
 
@@ -24,36 +24,68 @@ pub struct DtxAssetPlugin;
 
 impl Plugin for DtxAssetPlugin {
     fn build(&self, app: &mut App) {
-        app.register_asset_source(
-            DTX_SOURCE_ID,
-            AssetSourceBuilder::platform_default("", None)
-                .with_reader(|| Box::new(DtxAssetReader::new())),
-        );
+        let case_result_handle = Arc::new(OnceCell::new());
+
+        app.add_systems(Startup, check_case_sensitivity(case_result_handle.clone()))
+            .register_asset_source(
+                DTX_SOURCE_ID,
+                AssetSourceBuilder::platform_default("", None).with_reader(move || {
+                    Box::new(DtxAssetReader {
+                        inner: AssetSource::get_default_reader(String::new())(),
+                        cache: DirNoCaseCache(DashMap::new()),
+                        case_sensitive: case_result_handle.clone(),
+                    })
+                }),
+            );
     }
 }
 
 pub const DTX_SOURCE_ID: &str = "dtx";
 
-pub struct DtxAssetReader {
-    inner: Box<dyn ErasedAssetReader>,
-    cache: DirNoCaseCache,
+fn check_case_sensitivity(case_sensitive: Arc<OnceCell<bool>>) -> impl Fn() {
+    move || {
+        let case_result_handle = case_sensitive.clone();
+
+        IoTaskPool::get()
+            .spawn(async move {
+                case_result_handle.get_or_init(is_case_sensitive_fs).await;
+            })
+            .detach();
+    }
 }
 
-impl DtxAssetReader {
-    pub fn new() -> Self {
-        Self {
-            inner: AssetSource::get_default_reader(String::new())(),
-            cache: DirNoCaseCache(DashMap::new()),
-        }
+async fn is_case_sensitive_fs() -> bool {
+    const UPPER_FILE_NAME: &str = ".DTX_TEST_CASE.tmp";
+    const LOWER_FILE_NAME: &str = ".dtx_test_case.tmp";
+
+    let _ = async_fs::remove_file(UPPER_FILE_NAME).await;
+    let _ = async_fs::remove_file(LOWER_FILE_NAME).await;
+
+    if File::create(UPPER_FILE_NAME).await.is_err() {
+        return true; // to be sure that we'll run the ignore case check anyway
     }
+
+    let is_case_sensitive = async_fs::metadata(LOWER_FILE_NAME).await.is_err();
+
+    let _ = async_fs::remove_file(UPPER_FILE_NAME).await;
+
+    is_case_sensitive
+}
+
+struct DtxAssetReader {
+    inner: Box<dyn ErasedAssetReader>,
+    cache: DirNoCaseCache,
+    case_sensitive: Arc<OnceCell<bool>>,
 }
 
 impl AssetReader for DtxAssetReader {
     async fn read<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
         match self.inner.read(path).await {
-            err @ Err(AssetReaderError::NotFound(_)) => {
-                // Try to look for the file ignoring case using async_fs::read_dir and
-                // async_fs::File directly.
+            not_found @ Err(AssetReaderError::NotFound(_))
+                if *self.case_sensitive.get_or_init(is_case_sensitive_fs).await =>
+            {
+                // If can't find the file on a case sensitive FS, try looking again for the file
+                // name ignoring case, using async_fs::read_dir to traverse the directory.
                 //
                 // Can't utilize AssetReader::read and read_directory here (the cross-platform
                 // implementations) because the lifetime 'a don't allow us to return these trait
@@ -61,10 +93,10 @@ impl AssetReader for DtxAssetReader {
                 // actual path with the different case (if any) is either cached somewhere else or
                 // created in this function, so can't satitfy lifetime 'a.
                 let Some(dir) = path.parent() else {
-                    return err;
+                    return not_found;
                 };
                 let Some(file_name) = path.file_name() else {
-                    return err;
+                    return not_found;
                 };
 
                 let dir_no_case_cache = self
@@ -98,12 +130,12 @@ impl AssetReader for DtxAssetReader {
                     .as_ref()
                     .and_then(|cache| cache.get(&file_name.to_ascii_lowercase()))
                 else {
-                    return err;
+                    return not_found;
                 };
 
                 match File::open(real_path).await {
                     Ok(file) => Ok(Box::new(file)),
-                    Err(e) if e.kind() == ErrorKind::NotFound => err,
+                    Err(e) if e.kind() == ErrorKind::NotFound => not_found,
                     Err(e) => Err(e.into()),
                 }
             }
