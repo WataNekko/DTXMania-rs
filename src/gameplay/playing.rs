@@ -5,6 +5,7 @@ use bevy::{
     prelude::*,
     time::Stopwatch,
 };
+use bevy_kira_audio::{Audio, AudioControl};
 
 use crate::{
     assets::song::{Chip, DrumNote, SoundChip},
@@ -29,6 +30,7 @@ impl Plugin for PlayingPlugin {
                 update_chips_pos,
                 (|mut commands: Commands| commands.trigger(Return))
                     .run_if(input_just_pressed(Key::Escape)),
+                play_sound_chips,
             )
                 .run_if(in_state(GameplayState::Playing)),
         );
@@ -46,6 +48,9 @@ struct ChipTime(f64);
 
 #[derive(Resource, Deref, DerefMut)]
 struct PlaybackTime(Stopwatch);
+
+#[derive(Resource, Default)]
+struct PlayChipIdx(usize);
 
 fn setup(mut commands: Commands, song: Res<LoadedSong>) {
     let title = song.chart.title.clone();
@@ -137,6 +142,8 @@ fn setup(mut commands: Commands, song: Res<LoadedSong>) {
             )
         ],
     ));
+
+    commands.insert_resource(PlayChipIdx(0));
 }
 
 fn spawn_chips(
@@ -153,7 +160,10 @@ fn spawn_chips(
         let Chip::Sound {
             chip: SoundChip::Drum(lane_note),
             ..
-        } = info.chip;
+        } = info.chip
+        else {
+            continue;
+        };
 
         let Some(&lane) = lanes.get(&lane_note) else {
             continue;
@@ -185,4 +195,22 @@ fn update_chips_pos(chip_query: Query<(&ChipTime, &mut UiTransform)>, time: Res<
         const SCROLL_SPEED: f64 = 800.0;
         transform.translation.y = px((time.elapsed_secs_f64() - chip_time) * SCROLL_SPEED);
     }
+}
+
+fn play_sound_chips(
+    mut play_idx: ResMut<PlayChipIdx>,
+    song: Res<LoadedSong>,
+    time: Res<PlaybackTime>,
+    audio: Res<Audio>,
+) {
+    let played_count = song.chart.chips[play_idx.0..]
+        .iter()
+        .take_while(|info| info.time_sec <= time.elapsed_secs_f64())
+        .inspect(|info| {
+            let Chip::Sound { audio: handle, .. } = &info.chip;
+            audio.play(handle.clone());
+        })
+        .count();
+
+    play_idx.0 += played_count;
 }

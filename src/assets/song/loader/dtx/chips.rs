@@ -20,6 +20,7 @@ impl TryFrom<u8> for Channel {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
+            0x01 => Ok(Self::Sound(SoundChip::Bgm)),
             0x02 => Ok(Self::BarLength),
             0x03 => Ok(Self::Bpm),
             0x08 => Ok(Self::BpmExt),
@@ -53,6 +54,7 @@ impl Channel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum SoundChip {
+    Bgm,
     Drum(DrumNote),
 }
 
