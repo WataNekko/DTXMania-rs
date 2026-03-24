@@ -1,5 +1,5 @@
 use bevy::{asset::UnapprovedPathMode, prelude::*};
-use bevy_kira_audio::AudioPlugin;
+use bevy_seedling::SeedlingPlugin;
 use dtxmania_rs::{AppPlugin, DtxAssetPlugin};
 
 fn main() -> AppExit {
@@ -18,7 +18,7 @@ fn main() -> AppExit {
                 unapproved_path_mode: UnapprovedPathMode::Allow,
                 ..default()
             }),
-            AudioPlugin,
+            SeedlingPlugin::default(),
             AppPlugin,
         ))
         .add_systems(Startup, setup)

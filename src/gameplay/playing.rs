@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     time::Stopwatch,
 };
-use bevy_kira_audio::{Audio, AudioControl};
+use bevy_seedling::sample::SamplePlayer;
 
 use crate::{
     assets::song::{Chip, DrumNote, SoundChip},
@@ -198,17 +198,20 @@ fn update_chips_pos(chip_query: Query<(&ChipTime, &mut UiTransform)>, time: Res<
 }
 
 fn play_sound_chips(
+    mut commands: Commands,
     mut play_idx: ResMut<PlayChipIdx>,
     song: Res<LoadedSong>,
     time: Res<PlaybackTime>,
-    audio: Res<Audio>,
 ) {
     let played_count = song.chart.chips[play_idx.0..]
         .iter()
         .take_while(|info| info.time_sec <= time.elapsed_secs_f64())
         .inspect(|info| {
             let Chip::Sound { audio: handle, .. } = &info.chip;
-            audio.play(handle.clone());
+            commands.spawn((
+                DespawnOnExit(GameplayState::Playing),
+                SamplePlayer::new(handle.clone()),
+            ));
         })
         .count();
 
