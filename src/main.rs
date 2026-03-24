@@ -1,4 +1,8 @@
-use bevy::{asset::UnapprovedPathMode, prelude::*};
+use bevy::{
+    asset::UnapprovedPathMode,
+    ecs::error::{error, panic},
+    prelude::*,
+};
 use bevy_seedling::SeedlingPlugin;
 use dtxmania_rs::{AppPlugin, DtxAssetPlugin};
 
@@ -22,6 +26,7 @@ fn main() -> AppExit {
             AppPlugin,
         ))
         .add_systems(Startup, setup)
+        .set_error_handler(if cfg!(feature = "dev") { panic } else { error })
         .run()
 }
 
