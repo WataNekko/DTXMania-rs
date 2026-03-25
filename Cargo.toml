@@ -1,13 +1,28 @@
 [package]
 name = "dtxmania-rs"
 version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[workspace.package]
 edition = "2024"
+license = "MIT"
+authors = ["WataNekko <88185666+WataNekko@users.noreply.github.com>"]
+
+[workspace]
+members = ["crates/utils"]
+
+[workspace.dependencies]
+bevy = { version = "0.18", default-features = false }
+encoding_rs = "0.8.35"
+nom = "8.0.0"
 
 [dependencies]
 async-channel = "2.5.0"
 async-fs = "2.2.0"
 async-lock = "3.4.2"
-bevy = { version = "0.18", default-features = false, features = [
+bevy = { workspace = true, features = [
   "2d_bevy_render",
   "default_app",
   "picking",
@@ -31,17 +46,18 @@ bevy_egui = { version = "0.39", default-features = false, features = [
 ], optional = true }
 bevy_seedling = "0.7.2"
 dashmap = "6.1.0"
-encoding_rs = "0.8.35"
+encoding_rs.workspace = true
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.
 log = { version = "0.4", features = [
   "max_level_debug",
   "release_max_level_warn",
 ] }
-nom = "8.0.0"
+nom.workspace = true
 tracing = { version = "0.1", features = [
   "max_level_debug",
   "release_max_level_warn",
 ] }
+utils = { path = "crates/utils" }
 
 [features]
 dev = [

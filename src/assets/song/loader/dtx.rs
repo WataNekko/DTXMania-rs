@@ -18,11 +18,9 @@ use nom::{
     error::Error,
     sequence::terminated,
 };
+use utils::{encoding::AsyncBufReadEncodingExt, parser::opt_err};
 
-use crate::{
-    assets::DTX_SOURCE_ID,
-    utils::{encoding::AsyncBufReadEncodingExt, parser::*},
-};
+use crate::assets::DTX_SOURCE_ID;
 
 use self::{
     chips::{Channel, Object},

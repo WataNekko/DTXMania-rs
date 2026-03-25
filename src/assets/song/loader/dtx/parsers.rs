@@ -6,8 +6,9 @@ use nom::{
     error::{Error, ErrorKind},
     sequence::{preceded, separated_pair},
 };
+use utils::parser::cut_not_eof;
 
-use crate::{assets::song::loader::dtx::chips::Channel, utils::parser::*};
+use crate::assets::song::loader::dtx::chips::Channel;
 
 pub fn comment(input: &str) -> IResult<&str, &str> {
     recognize((tag(";"), not_line_ending)).parse(input)
