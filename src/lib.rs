@@ -10,7 +10,7 @@ use crate::{
     assets::song::SongScanPlugin, gameplay::GameplayPlugin, menu::song_select::SongSelectPlugin,
 };
 
-pub use crate::assets::DtxAssetPlugin;
+pub use crate::assets::{DtxAssetPlugin, DtxAssetReaderPlugin};
 
 pub struct AppPlugin;
 

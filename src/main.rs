@@ -3,13 +3,13 @@ use bevy::{
     ecs::error::{error, panic},
     prelude::*,
 };
-use bevy_seedling::SeedlingPlugin;
-use dtxmania_rs::{AppPlugin, DtxAssetPlugin};
+use bevy_seedling::SeedlingPlugins;
+use dtxmania_rs::{AppPlugin, DtxAssetPlugin, DtxAssetReaderPlugin};
 
 fn main() -> AppExit {
     App::new()
         .add_plugins((
-            DtxAssetPlugin,
+            DtxAssetReaderPlugin,
             DefaultPlugins.set(AssetPlugin {
                 // DTXMania may read charts and files from arbitrary locations set by DTXPath in
                 // Config.ini. This design fundamentally implies security risks.
@@ -22,7 +22,8 @@ fn main() -> AppExit {
                 unapproved_path_mode: UnapprovedPathMode::Allow,
                 ..default()
             }),
-            SeedlingPlugin::default(),
+            DtxAssetPlugin,
+            SeedlingPlugins,
             AppPlugin,
         ))
         .add_systems(Startup, setup)
