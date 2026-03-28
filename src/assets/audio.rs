@@ -3,12 +3,13 @@ use std::{
     ops::Range,
 };
 
-use bevy::{asset::AssetLoader, prelude::*};
+use bevy::{asset::AssetLoader, prelude::*, tasks::futures_lite::AsyncRead};
 use bevy_seedling::{
     context::{SampleRate, StreamStartEvent},
     firewheel::sample_resource::{SampleResource, SampleResourceInfo},
     sample::AudioSample,
 };
+use ffmpeg_async_utils::input_from_reader;
 use ffmpeg_next as ffmpeg;
 
 pub struct AudioPlugin;
@@ -49,11 +50,12 @@ impl AssetLoader for AudioLoader {
 
     async fn load(
         &self,
-        _reader: &mut dyn bevy::asset::io::Reader,
+        reader: &mut dyn bevy::asset::io::Reader,
         _settings: &Self::Settings,
-        load_context: &mut bevy::asset::LoadContext<'_>,
+        _load_context: &mut bevy::asset::LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
-        let mut input = ffmpeg::format::input(load_context.path().path())?;
+        let mut reader = reader as &mut (dyn AsyncRead + Unpin);
+        let mut input = input_from_reader(&mut reader)?;
 
         let input_stream = input
             .streams()

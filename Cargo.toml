@@ -11,11 +11,12 @@ license = "MIT"
 authors = ["WataNekko <88185666+WataNekko@users.noreply.github.com>"]
 
 [workspace]
-members = ["crates/utils"]
+members = ["crates/ffmpeg-async-utils", "crates/utils"]
 
 [workspace.dependencies]
 bevy = { version = "0.18", default-features = false }
 encoding_rs = "0.8.35"
+ffmpeg-next = "8.1.0"
 nom = "8.0.0"
 
 [dependencies]
@@ -49,7 +50,8 @@ bevy_seedling = { git = "https://github.com/CorvusPrudens/bevy_seedling", rev = 
 ] }
 dashmap = "6.1.0"
 encoding_rs.workspace = true
-ffmpeg-next = "8.1.0"
+ffmpeg-next.workspace = true
+ffmpeg-async-utils = { path = "crates/ffmpeg-async-utils" }
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.
 log = { version = "0.4", features = [
   "max_level_debug",
