@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     time::Stopwatch,
 };
-use bevy_seedling::sample::SamplePlayer;
+use bevy_seedling::{sample::SamplePlayer, time::Audio};
 
 use crate::{
     assets::song::{Chip, DrumNote, SoundChip},
@@ -186,7 +186,7 @@ fn spawn_chips(
     commands.insert_resource(PlaybackTime(Stopwatch::new()));
 }
 
-fn sync_playback_time(time: Res<Time>, mut playback_time: ResMut<PlaybackTime>) {
+fn sync_playback_time(time: Res<Time<Audio>>, mut playback_time: ResMut<PlaybackTime>) {
     playback_time.tick(time.delta());
 }
 
