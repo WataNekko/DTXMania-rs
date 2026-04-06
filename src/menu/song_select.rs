@@ -51,7 +51,7 @@ fn song_select_setup(mut commands: Commands) {
         Node {
             width: percent(100),
             height: percent(100),
-            align_items: AlignItems::Center,
+            align_items: AlignItems::Start,
             justify_content: JustifyContent::End,
             padding: UiRect::right(Val::Px(50.)),
             ..default()
