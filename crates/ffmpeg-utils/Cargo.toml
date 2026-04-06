@@ -1,5 +1,5 @@
 [package]
-name = "ffmpeg-async-utils"
+name = "ffmpeg-utils"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,3 @@ authors.workspace = true
 
 [dependencies]
 ffmpeg-next.workspace = true
-futures-io = "0.3.32"
-futures-lite = { version = "2.6.1", default-features = false, features = [
-  "std",
-] }

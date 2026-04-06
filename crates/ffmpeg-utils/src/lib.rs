@@ -1,17 +1,16 @@
 use core::ptr;
 use std::{
     ffi::{c_int, c_void},
+    io::Read,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
 use ffmpeg_next::{Error, ffi::*, format::context};
-use futures_io::AsyncRead;
-use futures_lite::{AsyncReadExt, future};
 
-pub struct Input<'a> {
+pub struct Input<'r> {
     inner: context::Input,
-    _io_ctx: IoContext<'a>,
+    _io_ctx: IoContext<'r>,
 }
 
 impl<'a> Deref for Input<'a> {
@@ -28,12 +27,12 @@ impl<'a> DerefMut for Input<'a> {
     }
 }
 
-struct IoContext<'a> {
+struct IoContext<'r> {
     ptr: *mut AVIOContext,
-    _phantom: PhantomData<&'a mut &'a mut (dyn AsyncRead + Unpin)>,
+    _phantom: PhantomData<&'r mut dyn Read>,
 }
 
-impl<'a> Drop for IoContext<'a> {
+impl<'r> Drop for IoContext<'r> {
     fn drop(&mut self) {
         unsafe {
             av_freep(&mut (*self.ptr).buffer as *mut _ as *mut c_void);
@@ -42,9 +41,14 @@ impl<'a> Drop for IoContext<'a> {
     }
 }
 
-pub fn input_from_reader<'a>(
-    reader: &'a mut &'a mut (dyn AsyncRead + Unpin),
-) -> Result<Input<'a>, Error> {
+pub fn input_from_reader<R: Read>(reader: &mut R) -> Result<Input<'_>, Error> {
+    input_from_reader_impl(reader as *mut _ as *mut c_void, read_packet::<R>)
+}
+
+fn input_from_reader_impl<'r>(
+    opaque: *mut c_void,
+    read_packet: unsafe extern "C" fn(*mut c_void, *mut u8, c_int) -> c_int,
+) -> Result<Input<'r>, Error> {
     unsafe {
         const BUF_SIZE: usize = 4096;
 
@@ -58,7 +62,7 @@ pub fn input_from_reader<'a>(
                 buf as *mut u_char,
                 BUF_SIZE as c_int,
                 0,
-                reader as *mut _ as *mut c_void,
+                opaque,
                 Some(read_packet),
                 None,
                 None,
@@ -97,11 +101,15 @@ pub fn input_from_reader<'a>(
     }
 }
 
-unsafe extern "C" fn read_packet(opaque: *mut c_void, buf: *mut u8, buf_size: c_int) -> c_int {
-    let reader = unsafe { &mut *(opaque as *mut &mut (dyn AsyncRead + Unpin)) };
+unsafe extern "C" fn read_packet<R: Read>(
+    opaque: *mut c_void,
+    buf: *mut u8,
+    buf_size: c_int,
+) -> c_int {
+    let reader = unsafe { &mut *(opaque as *mut R) };
     let buf = unsafe { std::slice::from_raw_parts_mut(buf, buf_size as usize) };
 
-    match future::block_on(reader.read(buf)) {
+    match reader.read(buf) {
         Ok(0) => AVERROR_EOF,
         Ok(n) => n as c_int,
         Err(err) => err
