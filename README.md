@@ -12,6 +12,10 @@ building and running. See <https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-
 
 ## TODO
 
+- simple playback
+  - [X] load single chart
+  - [X] load audio files
+  - [X] play sound chips in chart
 - gameplay
   - [ ] bjxa
   - [ ] input hit detection
