@@ -16,7 +16,7 @@ members = ["crates/ffmpeg-utils", "crates/utils"]
 [workspace.dependencies]
 bevy = { version = "0.18", default-features = false }
 encoding_rs = "0.8.35"
-ffmpeg-next = "8.1.0"
+ffmpeg-next = "9.0.0"
 nom = "8.0.0"
 
 [dependencies]
