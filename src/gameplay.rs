@@ -25,9 +25,9 @@ impl Plugin for GameplayPlugin {
 
             app.add_plugins((
                 StateInspectorPlugin::<GameplayState>::default()
-                    .run_if(toggle_inspector().and(in_state(GameState::Gameplay))),
+                    .run_if(toggle_inspector().and_then(in_state(GameState::Gameplay))),
                 ResourceInspectorPlugin::<LoadedSong>::default()
-                    .run_if(toggle_inspector().and(resource_exists::<LoadedSong>)),
+                    .run_if(toggle_inspector().and_then(resource_exists::<LoadedSong>)),
             ));
         }
     }

@@ -43,7 +43,7 @@ fn setup(mut commands: Commands) {
         children![(
             Text::new("LOADING..."),
             TextFont {
-                font_size: 12.0,
+                font_size: FontSize::Px(12.0),
                 ..default()
             },
             TextColor(Color::WHITE),

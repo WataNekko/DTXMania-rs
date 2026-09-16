@@ -24,10 +24,7 @@ impl Plugin for SongSelectPlugin {
                 (
                     navigate(-1).run_if(input_just_pressed(KeyCode::ArrowUp)),
                     navigate(1).run_if(input_just_pressed(KeyCode::ArrowDown)),
-                    confirm_selection.run_if(
-                        resource_exists::<SelectedSongIndex>
-                            .and(input_just_pressed(KeyCode::Enter)),
-                    ),
+                    confirm_selection.run_if(input_just_pressed(KeyCode::Enter)),
                 ),
                 focus_selected.run_if(resource_exists_and_changed::<SelectedSongIndex>),
             )
@@ -40,7 +37,7 @@ impl Plugin for SongSelectPlugin {
 #[derive(Component)]
 struct SongsContainer;
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 struct SelectedSongIndex(usize);
 
 const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
@@ -67,7 +64,7 @@ fn song_select_setup(mut commands: Commands) {
                 (
                     Text::new("Song Select"),
                     TextFont {
-                        font_size: 67.0,
+                        font_size: FontSize::Px(67.0),
                         ..default()
                     },
                     TextColor(TEXT_COLOR),
@@ -117,7 +114,7 @@ fn refresh_songs_container(
                     children![(
                         Text::new(name),
                         TextFont {
-                            font_size: 33.0,
+                            font_size: FontSize::Px(33.0),
                             ..default()
                         },
                         TextColor(TEXT_COLOR),
@@ -162,11 +159,11 @@ fn focus_selected(
 
 fn confirm_selection(
     mut commands: Commands,
-    idx: Res<SelectedSongIndex>,
+    idx: If<Res<SelectedSongIndex>>,
     song_db: Res<SongDatabase>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    info!("Selected song: {}", song_db[idx.0].display());
-    commands.insert_resource(SongPlaying { db_idx: idx.0 });
+    info!("Selected song: {}", song_db[idx.0.0].display());
+    commands.insert_resource(SongPlaying { db_idx: idx.0.0 });
     next_state.set(GameState::Gameplay);
 }

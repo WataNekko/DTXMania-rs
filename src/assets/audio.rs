@@ -165,8 +165,8 @@ impl SampleResource for DecodedAudio {
         buffers: &mut [&mut [f32]],
         buffer_range: Range<usize>,
         start_frame: u64,
-    ) {
+    ) -> usize {
         self.samples
-            .fill_buffers(buffers, buffer_range, start_frame);
+            .fill_buffers(buffers, buffer_range, start_frame)
     }
 }
