@@ -9,11 +9,11 @@ use crate::GameState;
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         EguiPlugin::default(),
-        WorldInspectorPlugin::default().run_if(toggle_inspector()),
-        StateInspectorPlugin::<GameState>::default().run_if(toggle_inspector()),
+        WorldInspectorPlugin::default().run_if(inspector_toggled()),
+        StateInspectorPlugin::<GameState>::default().run_if(inspector_toggled()),
     ));
 }
 
-pub fn toggle_inspector() -> impl FnMut(Res<ButtonInput<KeyCode>>) -> bool + Clone {
+pub fn inspector_toggled() -> impl FnMut(Res<ButtonInput<KeyCode>>) -> bool + Clone {
     input_toggle_active(false, KeyCode::F1)
 }

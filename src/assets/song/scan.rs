@@ -22,11 +22,11 @@ impl Plugin for SongScanPlugin {
 
         #[cfg(feature = "dev")]
         {
-            use crate::debug::toggle_inspector;
+            use crate::debug::inspector_toggled;
             use bevy_inspector_egui::quick::StateInspectorPlugin;
 
             app.add_plugins(
-                StateInspectorPlugin::<SongScanState>::default().run_if(toggle_inspector()),
+                StateInspectorPlugin::<SongScanState>::default().run_if(inspector_toggled()),
             );
         }
     }
