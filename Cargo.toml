@@ -32,6 +32,7 @@ bevy_seedling = { version = "0.8.0", default-features = false, features = [
   "cpal",
   "diagnostics",
 ] }
+cpal = { version = "0.18", features = ["pipewire", "asio"] }
 dashmap = "6.1.0"
 encoding_rs.workspace = true
 ffmpeg-next.workspace = true
