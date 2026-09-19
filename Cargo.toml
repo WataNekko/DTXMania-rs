@@ -11,7 +11,7 @@ license = "MIT"
 authors = ["WataNekko <88185666+WataNekko@users.noreply.github.com>"]
 
 [workspace]
-members = ["crates/ffmpeg-utils", "crates/utils"]
+members = ["crates/bjxa-rs", "crates/ffmpeg-utils", "crates/utils"]
 
 [workspace.dependencies]
 bevy = { version = "0.19", default-features = false }
@@ -32,6 +32,7 @@ bevy_seedling = { version = "0.8.0", default-features = false, features = [
   "cpal",
   "diagnostics",
 ] }
+bjxa-rs = { path = "crates/bjxa-rs" }
 cpal = { version = "0.18", features = ["pipewire", "asio"] }
 dashmap = "6.1.0"
 encoding_rs.workspace = true

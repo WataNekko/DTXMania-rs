@@ -1,0 +1,9 @@
+[package]
+name = "bjxa-rs"
+version = "0.1.0"
+edition.workspace = true
+license = "LGPL-2.1-or-later"
+authors.workspace = true
+
+[lib]
+crate-type = ["dylib"]

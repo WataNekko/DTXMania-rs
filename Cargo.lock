@@ -2053,6 +2053,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "bjxa-rs"
+version = "0.1.0"
+
+[[package]]
 name = "blake3"
 version = "1.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2693,6 +2697,7 @@ dependencies = [
  "bevy-inspector-egui",
  "bevy_egui 0.42.0",
  "bevy_seedling",
+ "bjxa-rs",
  "cpal",
  "dashmap",
  "encoding_rs",
