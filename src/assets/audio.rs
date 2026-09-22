@@ -53,10 +53,26 @@ impl AssetLoader for AudioLoader {
         &self,
         reader: &mut dyn bevy::asset::io::Reader,
         _settings: &Self::Settings,
-        _load_context: &mut bevy::asset::LoadContext<'_>,
+        load_context: &mut bevy::asset::LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
+
+        if load_context
+            .path()
+            .get_extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("xa"))
+        {
+            let (fmt, samples) = bjxa_rs::decode_deinterleaved_f32(bytes.as_slice())?;
+
+            return Ok(AudioSample::new(
+                DecodedAudio {
+                    samples,
+                    sample_rate: fmt.sample_rate.into(),
+                },
+                fmt.sample_rate.into(),
+            ));
+        }
 
         let mut reader = Cursor::new(bytes);
         let mut input = input_from_reader(&mut reader)?;
