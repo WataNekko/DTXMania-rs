@@ -201,9 +201,10 @@ impl<R: Read> Decoder<R> {
 
         let full_blocks_per_channel = samples_per_channel / SAMPLES_PER_BLOCK;
         let remainder_samples = samples_per_channel % SAMPLES_PER_BLOCK;
+        let opt_remainder_samples = NonZero::new(remainder_samples).map(NonZero::get);
 
         let mut inflated_iter = iter::repeat_n(SAMPLES_PER_BLOCK, full_blocks_per_channel)
-            .chain(iter::once(remainder_samples))
+            .chain(opt_remainder_samples)
             .flat_map(move |samples| (0..channels).map(move |channel| (channel, samples)))
             .map(move |(channel, samples)| {
                 reader.read_exact(&mut block)?;
