@@ -17,7 +17,7 @@ building and running. See <https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-
   - [X] load audio files
   - [X] play sound chips in chart
 - gameplay
-  - [ ] bjxa
+  - [X] bjxa
   - [ ] input hit detection
   - [ ] hit range (perfect, poor, etc.)
   - [ ] group lanes (HHC+HHO, etc.)
