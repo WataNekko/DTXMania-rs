@@ -1,9 +1,7 @@
-#![allow(clippy::chunks_exact_to_as_chunks)]
-
 use std::{
     io::{self, Read},
-    iter::{self, FlatMap},
-    num::{NonZero, NonZeroU8, NonZeroU16, NonZeroUsize},
+    iter,
+    num::{NonZero, NonZeroU16},
 };
 
 const HEADER_LEN: usize = 32;
@@ -42,29 +40,12 @@ impl From<Error> for io::Error {
 
 #[derive(Clone, Copy)]
 pub struct Format {
-    pub samples_per_channel: NonZeroUsize,
+    pub samples_per_channel: usize,
     pub sample_rate: NonZeroU16,
-    pub channels: NonZeroU8,
+    pub channels: usize,
 }
 
-enum BitDepth {
-    Four = 4,
-    Six = 6,
-    Eight = 8,
-}
-
-impl TryFrom<u8> for BitDepth {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            4 => Ok(Self::Four),
-            6 => Ok(Self::Six),
-            8 => Ok(Self::Eight),
-            _ => Err(()),
-        }
-    }
-}
+type InflateSamplesFn = fn(&[u8], &mut Vec<i16>) -> Option<usize>;
 
 struct PrevSamples(i16, i16);
 
@@ -77,12 +58,9 @@ pub struct Decoder<R: Read> {
     pub reader: R,
     fmt: Format,
     block_len: usize,
-    bits: BitDepth,
+    inflate_samples_fn: InflateSamplesFn,
     channels_state: [PrevSamples; 2],
 }
-
-type InflatedIter<'a> =
-    FlatMap<std::slice::ChunksExact<'a, u8>, Vec<i16>, fn(&'a [u8]) -> Vec<i16>>;
 
 impl<R: Read> Decoder<R> {
     pub fn new(mut reader: R) -> Result<Decoder<R>, Error> {
@@ -94,8 +72,8 @@ impl<R: Read> Decoder<R> {
         let data_len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
         let samples_per_channel = u32::from_le_bytes(header[8..12].try_into().unwrap()) as usize;
         let sample_rate = u16::from_le_bytes(header[12..14].try_into().unwrap());
-        let bits = header[14];
-        let channels = header[15];
+        let bit_depth = header[14];
+        let channels = header[15] as usize;
         let channels_state = [
             PrevSamples(
                 i16::from_le_bytes(header[20..22].try_into().unwrap()),
@@ -107,42 +85,36 @@ impl<R: Read> Decoder<R> {
             ),
         ];
 
-        let block_len = (bits as usize) * SAMPLES_PER_BLOCK / 8 + 1;
+        let block_len = (bit_depth as usize) * SAMPLES_PER_BLOCK / 8 + 1;
         // total samples length per block + profile byte
 
         match (
             magic,
-            NonZero::new(data_len),
-            NonZero::new(samples_per_channel),
+            data_len,
+            samples_per_channel,
             NonZero::new(sample_rate),
-            BitDepth::try_from(bits),
+            Self::get_inflate_samples_fn(bit_depth),
             channels,
         ) {
-            (
-                HEADER_MAGIC,
-                Some(data_len),
-                Some(samples_per_channel),
-                Some(sample_rate),
-                Ok(bits),
-                1 | 2,
-            ) if data_len.get() % block_len == 0 && {
-                let blocks = data_len.get() / block_len;
-                let blocks_per_channel = blocks / (channels as usize);
+            (HEADER_MAGIC, 1.., 1.., Some(sample_rate), Some(inflate_samples_fn), 1 | 2)
+                if data_len.is_multiple_of(block_len) && {
+                    let blocks = data_len / block_len;
+                    let blocks_per_channel = blocks / channels;
 
-                let upper = blocks_per_channel * SAMPLES_PER_BLOCK;
-                let lower = upper - SAMPLES_PER_BLOCK + 1;
-                (lower..=upper).contains(&samples_per_channel.get())
-            } =>
+                    let upper = blocks_per_channel * SAMPLES_PER_BLOCK;
+                    let lower = upper - SAMPLES_PER_BLOCK + 1;
+                    (lower..=upper).contains(&samples_per_channel)
+                } =>
             {
                 Ok(Self {
                     reader,
                     fmt: Format {
                         samples_per_channel,
                         sample_rate,
-                        channels: channels.try_into().unwrap(),
+                        channels,
                     },
                     block_len,
-                    bits,
+                    inflate_samples_fn,
                     channels_state,
                 })
             }
@@ -154,91 +126,115 @@ impl<R: Read> Decoder<R> {
         self.fmt
     }
 
-    fn inflate_4bit_samples(bytes: &mut [u8]) -> InflatedIter<'_> {
-        bytes.chunks_exact(1).flat_map(|b| {
-            let b = b[0] as u16;
-            vec![((b & 0xf0) << 8) as i16, ((b & 0x0f) << 12) as i16]
-        })
+    fn get_inflate_samples_fn(bit_depth: u8) -> Option<InflateSamplesFn> {
+        match bit_depth {
+            4 => Some(Self::inflate_4bit_samples),
+            6 => Some(Self::inflate_6bit_samples),
+            8 => Some(Self::inflate_8bit_samples),
+            _ => None,
+        }
     }
 
-    fn inflate_6bit_samples(bytes: &mut [u8]) -> InflatedIter<'_> {
-        bytes.chunks_exact(3).flat_map(|b| {
-            let s = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
+    fn inflate_4bit_samples(bytes: &[u8], out_stack: &mut Vec<i16>) -> Option<usize> {
+        let consumed @ &[b] = bytes.first_chunk()?;
+        let b = b as u16;
 
-            vec![
-                ((s & 0xfc0000) >> 8) as i16,
-                ((s & 0x03f000) >> 2) as i16,
-                ((s & 0x000fc0) << 4) as i16,
-                ((s & 0x00003f) << 10) as i16,
-            ]
-        })
+        out_stack.push(((b & 0x0f) << 12) as i16);
+        out_stack.push(((b & 0xf0) << 8) as i16);
+
+        Some(consumed.len())
     }
 
-    fn inflate_8bit_samples(bytes: &mut [u8]) -> InflatedIter<'_> {
-        bytes
-            .chunks_exact(1)
-            .flat_map(|b| vec![((b[0] as u16) << 8) as i16])
+    fn inflate_6bit_samples(bytes: &[u8], out_stack: &mut Vec<i16>) -> Option<usize> {
+        let consumed @ &[b0, b1, b2] = bytes.first_chunk()?;
+        let b = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
+
+        out_stack.push(((b & 0x00003f) << 10) as i16);
+        out_stack.push(((b & 0x000fc0) << 4) as i16);
+        out_stack.push(((b & 0x03f000) >> 2) as i16);
+        out_stack.push(((b & 0xfc0000) >> 8) as i16);
+
+        Some(consumed.len())
+    }
+
+    fn inflate_8bit_samples(bytes: &[u8], out_stack: &mut Vec<i16>) -> Option<usize> {
+        let consumed @ &[b] = bytes.first_chunk()?;
+        let b = b as u16;
+
+        out_stack.push((b << 8) as i16);
+
+        Some(consumed.len())
     }
 
     pub fn decode(self) -> (Format, impl Iterator<Item = Result<DecodedSample, Error>>) {
-        // [x] Try either iter returning vec
-        // [ ] Or iter from_fn holding vec
-        // [ ] Or passing in callback
-        let inflate_fn = match self.bits {
-            BitDepth::Four => Self::inflate_4bit_samples,
-            BitDepth::Six => Self::inflate_6bit_samples,
-            BitDepth::Eight => Self::inflate_8bit_samples,
-        };
-        let mut block = vec![0; self.block_len];
         let Self {
             mut reader,
+            fmt:
+                Format {
+                    samples_per_channel,
+                    channels,
+                    ..
+                },
+            block_len,
+            inflate_samples_fn,
             mut channels_state,
-            ..
         } = self;
-
-        let samples_per_channel = self.fmt.samples_per_channel.get();
-        let channels = self.fmt.channels.get() as usize;
 
         let full_blocks_per_channel = samples_per_channel / SAMPLES_PER_BLOCK;
         let remainder_samples = samples_per_channel % SAMPLES_PER_BLOCK;
         let opt_remainder_samples = NonZero::new(remainder_samples).map(NonZero::get);
 
-        let mut inflated_iter = iter::repeat_n(SAMPLES_PER_BLOCK, full_blocks_per_channel)
+        let mut block_iter = iter::repeat_n(SAMPLES_PER_BLOCK, full_blocks_per_channel)
             .chain(opt_remainder_samples)
-            .flat_map(move |samples| (0..channels).map(move |channel| (channel, samples)))
-            .map(move |(channel, samples)| {
-                reader.read_exact(&mut block)?;
-                let (&mut profile, sample_bytes) = block.split_first_mut().unwrap();
+            .flat_map(move |samples| (0..channels).map(move |channel| (channel, samples)));
 
-                let factor = profile as usize >> 4;
-                let range = profile & 0x0f;
+        let inflated_iter = iter::from_fn({
+            let mut block = vec![0; block_len];
+            let mut block_offset = 0;
+            let mut inflated_stack = Vec::new();
 
-                Result::<_, Error>::Ok(
-                    inflate_fn(sample_bytes)
-                        .map(move |inflated| (channel, factor, range, inflated))
-                        .take(samples)
-                        .collect::<Vec<_>>(),
-                )
-            });
+            let mut curr_channel = 0;
+            let mut factor = 0;
+            let mut range = 0;
+            let mut remaining_samples = 0;
 
-        let flattened_inflated_iter = iter::from_fn({
-            let mut inner_iter = None;
             move || loop {
-                if let Some(item) = inner_iter.as_mut().and_then(Iterator::next) {
-                    return Some(Ok(item));
+                if remaining_samples > 0 {
+                    if let Some(inflated) = inflated_stack.pop() {
+                        remaining_samples -= 1;
+                        return Some(Ok((curr_channel, factor, range, inflated)));
+                    }
+
+                    if let Some(consumed) =
+                        inflate_samples_fn(&block[block_offset..], &mut inflated_stack)
+                    {
+                        block_offset += consumed;
+                        continue;
+                    }
                 }
 
-                match inflated_iter.next() {
-                    Some(Ok(inner)) => {
-                        inner_iter = Some(inner.into_iter());
+                match block_iter.next() {
+                    Some((channel, samples)) => {
+                        if let Err(e) = reader.read_exact(&mut block) {
+                            return Some(Err(e));
+                        }
+
+                        let profile = block[0];
+                        factor = profile as usize >> 4;
+                        range = profile & 0x0f;
+
+                        block_offset = 1;
+                        inflated_stack.clear();
+
+                        curr_channel = channel;
+                        remaining_samples = samples;
                     }
-                    Some(Err(e)) => return Some(Err(e)),
                     None => return None,
                 }
             }
         });
 
-        let decoded_iter = flattened_inflated_iter.map(move |inflated_res| {
+        let decoded_iter = inflated_iter.map(move |inflated_res| {
             let (channel, factor, range, inflated) = inflated_res?;
 
             let PrevSamples(prev0, prev1) = &mut channels_state[channel];
@@ -262,16 +258,14 @@ impl<R: Read> Decoder<R> {
 pub fn decode_interleaved<R: Read>(reader: R) -> Result<(Format, Vec<i16>), Error> {
     let (fmt, iter) = Decoder::new(reader)?.decode();
 
-    let samples_per_channel = fmt.samples_per_channel.get();
-    let channels = fmt.channels.get().into();
-    let mut pcm = vec![0; samples_per_channel * channels];
-    let mut indices = (0..channels).collect::<Vec<_>>();
+    let mut pcm = vec![0; fmt.samples_per_channel * fmt.channels];
+    let mut indices = (0..fmt.channels).collect::<Vec<_>>();
 
     for res in iter {
         let DecodedSample { channel, sample } = res?;
         let i = &mut indices[channel];
         pcm[*i] = sample;
-        *i += channels;
+        *i += fmt.channels;
     }
 
     Ok((fmt, pcm))
@@ -280,9 +274,7 @@ pub fn decode_interleaved<R: Read>(reader: R) -> Result<(Format, Vec<i16>), Erro
 pub fn decode_deinterleaved<R: Read>(reader: R) -> Result<(Format, Vec<Vec<i16>>), Error> {
     let (fmt, iter) = Decoder::new(reader)?.decode();
 
-    let samples_per_channel = fmt.samples_per_channel.get();
-    let channels = fmt.channels.get().into();
-    let mut pcm = vec![Vec::with_capacity(samples_per_channel); channels];
+    let mut pcm = vec![Vec::with_capacity(fmt.samples_per_channel); fmt.channels];
 
     for res in iter {
         let DecodedSample { channel, sample } = res?;
@@ -295,9 +287,7 @@ pub fn decode_deinterleaved<R: Read>(reader: R) -> Result<(Format, Vec<Vec<i16>>
 pub fn decode_deinterleaved_f32<R: Read>(reader: R) -> Result<(Format, Vec<Vec<f32>>), Error> {
     let (fmt, iter) = Decoder::new(reader)?.decode();
 
-    let samples_per_channel = fmt.samples_per_channel.get();
-    let channels = fmt.channels.get().into();
-    let mut pcm = vec![Vec::with_capacity(samples_per_channel); channels];
+    let mut pcm = vec![Vec::with_capacity(fmt.samples_per_channel); fmt.channels];
 
     for res in iter {
         let DecodedSample { channel, sample } = res?;
