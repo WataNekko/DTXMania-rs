@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 use async_channel::Receiver;
 use bevy::{
@@ -6,7 +6,7 @@ use bevy::{
     tasks::{IoTaskPool, futures_lite::StreamExt},
 };
 
-use crate::assets::song::SongDatabase;
+use crate::assets::{get_base_path, song::SongDatabase};
 
 pub struct SongScanPlugin;
 
@@ -41,17 +41,6 @@ pub enum SongScanState {
 #[derive(Resource, Deref)]
 struct SongScanChannel(Receiver<Vec<PathBuf>>);
 
-fn get_base_path() -> PathBuf {
-    #[cfg(feature = "dev")]
-    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-        return PathBuf::from(manifest_dir);
-    }
-
-    env::current_exe()
-        .map(|path| path.parent().map(ToOwned::to_owned).unwrap())
-        .unwrap()
-}
-
 fn song_scan_start(mut commands: Commands) {
     info!("Starting song scan");
     let (tx, rx) = async_channel::bounded(1);
@@ -59,12 +48,9 @@ fn song_scan_start(mut commands: Commands) {
 
     IoTaskPool::get()
         .spawn(async move {
+            let path = get_base_path().join("DTXFiles");
             let mut songs = Vec::new();
-            let path = {
-                let mut p = get_base_path();
-                p.push("DTXFiles");
-                p
-            };
+
             scan_dir_recursive(path, &mut songs).await;
 
             tx.send(songs)

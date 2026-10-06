@@ -7,7 +7,9 @@ mod menu;
 use bevy::prelude::*;
 
 use crate::{
-    assets::song::SongScanPlugin, gameplay::GameplayPlugin, menu::song_select::SongSelectPlugin,
+    assets::{config::ConfigPlugin, song::SongScanPlugin},
+    gameplay::GameplayPlugin,
+    menu::song_select::SongSelectPlugin,
 };
 
 pub use crate::assets::{DtxAssetPlugin, DtxAssetReaderPlugin};
@@ -19,8 +21,13 @@ impl Plugin for AppPlugin {
         #[cfg(feature = "dev")]
         app.add_plugins(debug::plugin);
 
-        app.add_plugins((SongScanPlugin, SongSelectPlugin, GameplayPlugin))
-            .init_state::<GameState>();
+        app.add_plugins((
+            ConfigPlugin,
+            SongScanPlugin,
+            SongSelectPlugin,
+            GameplayPlugin,
+        ))
+        .init_state::<GameState>();
     }
 }
 

@@ -44,6 +44,7 @@ log = { version = "0.4", features = [
   "release_max_level_warn",
 ] }
 nom.workspace = true
+rust-ini = "0.21.3"
 tracing = { version = "0.1", features = [
   "max_level_debug",
   "release_max_level_warn",
