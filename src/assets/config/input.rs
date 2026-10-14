@@ -1,16 +1,16 @@
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet, hash_map::Entry},
+    fmt::Write,
+};
+
 use bevy::prelude::*;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+use crate::assets::{config::SectionParser, song::DrumNote};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InputTrigger {
     Keyboard(SlimDxKeyCode),
-}
-
-impl std::fmt::Display for InputTrigger {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Keyboard(code) => write!(f, "Key {}", code),
-        }
-    }
 }
 
 impl TryFrom<&str> for InputTrigger {
@@ -38,13 +38,40 @@ impl TryFrom<&str> for InputTrigger {
     }
 }
 
+impl InputTrigger {
+    pub const fn from_key_code(value: KeyCode) -> Self {
+        Self::Keyboard(SlimDxKeyCode::from_key_code(value))
+    }
+
+    /// Returns a struct that impl [std::fmt::Display] to format an in-game text for [InputTrigger].
+    pub fn in_game_display(&self) -> InputTriggerInGameDisplay<'_> {
+        InputTriggerInGameDisplay(self)
+    }
+}
+
+impl From<KeyCode> for InputTrigger {
+    fn from(value: KeyCode) -> Self {
+        Self::from_key_code(value)
+    }
+}
+
+pub struct InputTriggerInGameDisplay<'a>(&'a InputTrigger);
+
+impl<'a> std::fmt::Display for InputTriggerInGameDisplay<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            InputTrigger::Keyboard(code) => write!(f, "Key {}", code),
+        }
+    }
+}
+
 /// Based on the old DirectInput key code mapping, for backwards compatibility.
 /// https://github.com/limyz/DTXmaniaNX/blob/1.4.2/FDK/Code/02.Input/SlimDX.DirectInput.Key.cs
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SlimDxKeyCode(pub u32);
 
-impl From<KeyCode> for SlimDxKeyCode {
-    fn from(value: KeyCode) -> Self {
+impl SlimDxKeyCode {
+    pub const fn from_key_code(value: KeyCode) -> Self {
         let code = match value {
             KeyCode::Digit0 => 0,
             KeyCode::Digit1 => 1,
@@ -197,6 +224,12 @@ impl From<KeyCode> for SlimDxKeyCode {
     }
 }
 
+impl From<KeyCode> for SlimDxKeyCode {
+    fn from(value: KeyCode) -> Self {
+        Self::from_key_code(value)
+    }
+}
+
 impl std::fmt::Display for SlimDxKeyCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Copied from:
@@ -334,9 +367,171 @@ impl std::fmt::Display for SlimDxKeyCode {
             0x71 => "[Power]",
             0x7d => "[Sleep]",
             0x87 => "[Wake]",
+            144 => "[Unknown]",
             code => return write!(f, "0x{:02X}", code),
         };
 
         f.write_str(label)
+    }
+}
+
+pub type InputTriggerList = Vec<Option<InputTrigger>>;
+
+pub struct DrumInputMapParser {
+    notes_with_defaults: HashMap<&'static str, (DrumNote, &'static [InputTrigger])>,
+    note_to_triggers: HashMap<DrumNote, InputTriggerList>,
+    trigger_to_note: HashMap<InputTrigger, DrumNote>,
+}
+
+impl DrumInputMapParser {
+    pub const CONFIG_KEYS_AND_DEFAULTS: &[(DrumNote, &str, &[InputTrigger])] = {
+        use KeyCode::*;
+
+        const fn k(code: KeyCode) -> InputTrigger {
+            InputTrigger::from_key_code(code)
+        }
+
+        &[
+            (DrumNote::HiHatClose, "HH", &[k(KeyX)]),
+            (DrumNote::Snare, "SD", &[k(KeyC), k(KeyD)]),
+            (DrumNote::BassDrum, "BD", &[k(Space), k(Convert)]),
+            (DrumNote::HighTom, "HT", &[k(KeyV), k(KeyF)]),
+            (DrumNote::LowTom, "LT", &[k(KeyB), k(KeyG)]),
+            (DrumNote::FloorTom, "FT", &[k(KeyN), k(KeyH)]),
+            (DrumNote::Cymbal, "CY", &[k(KeyM), k(KeyJ)]),
+            (DrumNote::HiHatOpen, "HO", &[k(KeyS)]),
+            (DrumNote::RideCymbal, "RD", &[k(Comma), k(KeyK)]),
+            (DrumNote::LeftCymbal, "LC", &[k(KeyZ), k(KeyA)]),
+            (DrumNote::LeftPedal, "LP", &[k(NonConvert), k(ControlLeft)]),
+            (DrumNote::LeftBass, "LBD", &[k(AltLeft)]),
+        ]
+    };
+
+    pub fn new() -> Self {
+        Self {
+            notes_with_defaults: Self::CONFIG_KEYS_AND_DEFAULTS
+                .iter()
+                .map(|&(note, key, default)| (key, (note, default)))
+                .collect(),
+            note_to_triggers: HashMap::new(),
+            trigger_to_note: HashMap::new(),
+        }
+    }
+}
+
+impl SectionParser for DrumInputMapParser {
+    fn parse_entry<'a>(&mut self, key: &'a str, value: &'a str) -> Result<(), Cow<'a, str>> {
+        let &(note, _) = self.notes_with_defaults.get(key).ok_or("Unknown key")?;
+
+        let trigger_list = self
+            .note_to_triggers
+            .entry(note)
+            .and_modify(|l| {
+                for trigger in l.drain(..).flatten() {
+                    self.trigger_to_note.remove(&trigger);
+                }
+            })
+            .or_default();
+        let mut trigger_set = HashSet::new();
+
+        let mut result: Result<(), Cow<str>> = Ok(());
+
+        for s in value.split(',').map(str::trim) {
+            if s.is_empty() {
+                trigger_list.push(None);
+                continue;
+            }
+
+            match InputTrigger::try_from(s) {
+                Ok(trigger) => {
+                    let new = trigger_set.insert(trigger);
+                    if new {
+                        trigger_list.push(Some(trigger));
+                    }
+                    // list is reduced if the trigger's already bound to the same note.
+                }
+                Err(e) => {
+                    // list is reduced if the trigger cannot be parsed.
+                    match result.as_mut() {
+                        Ok(()) => {
+                            result = Err(format!("Invalid trigger(s) \"{}\" ({})", s, e).into());
+                        }
+                        Err(existing_err_msg) => {
+                            write!(existing_err_msg.to_mut(), ", \"{}\" ({})", s, e).unwrap();
+                        }
+                    }
+                }
+            }
+        }
+
+        let trimmed_len = trigger_list
+            .iter()
+            .rposition(Option::is_some)
+            .map_or(0, |i| i + 1);
+        trigger_list.truncate(trimmed_len);
+
+        for trigger in trigger_set {
+            if let Some(old_note) = self.trigger_to_note.insert(trigger, note) {
+                let old_list = self
+                    .note_to_triggers
+                    .get_mut(&old_note)
+                    .expect("If bound to old_note then old trigger list should exist.");
+
+                let old_entry = old_list
+                    .iter_mut()
+                    .find(|t| **t == Some(trigger))
+                    .expect("If bound to old_note then trigger should be in old_list.");
+
+                old_entry.take();
+            }
+        }
+
+        result
+    }
+}
+
+impl DrumInputMapParser {
+    pub fn finalize(self) -> DrumInputMap {
+        let Self {
+            notes_with_defaults,
+            mut note_to_triggers,
+            mut trigger_to_note,
+        } = self;
+
+        for (note, default) in notes_with_defaults.into_values() {
+            note_to_triggers.entry(note).or_insert_with(|| {
+                default
+                    .iter()
+                    .filter_map(|&trigger| match trigger_to_note.entry(trigger) {
+                        Entry::Occupied(_) => None,
+                        Entry::Vacant(entry) => {
+                            entry.insert(note);
+                            Some(Some(trigger))
+                        }
+                    })
+                    .collect()
+            });
+        }
+
+        DrumInputMap {
+            note_to_triggers,
+            trigger_to_note,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DrumInputMap {
+    note_to_triggers: HashMap<DrumNote, InputTriggerList>,
+    trigger_to_note: HashMap<InputTrigger, DrumNote>,
+}
+
+impl DrumInputMap {
+    pub fn trigger_list(&self, note: &DrumNote) -> &InputTriggerList {
+        &self.note_to_triggers[note]
+    }
+
+    pub fn trigger_note(&self, trigger: &InputTrigger) -> Option<DrumNote> {
+        self.trigger_to_note.get(trigger).copied()
     }
 }
