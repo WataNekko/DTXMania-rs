@@ -8,7 +8,7 @@ use nom::{
 };
 use utils::parser::cut_not_eof;
 
-use crate::assets::song::loader::dtx::chips::Channel;
+use crate::assets::song::dtx::chips::Channel;
 
 pub fn comment(input: &str) -> IResult<&str, &str> {
     recognize((tag(";"), not_line_ending)).parse(input)

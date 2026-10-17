@@ -1,7 +1,7 @@
 mod db;
-mod loader;
+mod dtx;
 mod scan;
 
 pub use db::*;
-pub use loader::*;
+pub use dtx::*;
 pub use scan::*;
