@@ -12,7 +12,8 @@ pub fn opt_err<O, E>(res: Result<O, Err<E>>) -> Result<Option<O>, Err<E>> {
     }
 }
 
-/// Convert all [Err::Error] into [Err::Failure], except [ErrorKind::Eof]. Useful for [nom::combinator::ParserIterator].
+/// Convert all [Err::Error] into [Err::Failure], except [ErrorKind::Eof].
+/// Useful for [nom::combinator::ParserIterator].
 pub fn cut_not_eof<I, O>(
     mut parser: impl Parser<I, Output = O, Error = Error<I>>,
 ) -> impl Parser<I, Output = O, Error = Error<I>> {
