@@ -4,7 +4,6 @@ use std::{
 };
 
 use bevy::reflect::Reflect;
-use enum_map::Enum;
 use nom::{
     Err, IResult, Parser,
     bytes::complete::{is_a, is_not, tag, tag_no_case, take},
@@ -143,7 +142,7 @@ impl From<SoundChipChannel> for Channel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum DrumNote {
     HiHatClose,
     Snare,

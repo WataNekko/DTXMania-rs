@@ -6,7 +6,6 @@ use async_fs::File;
 use bevy::{asset::AssetPath, prelude::*, reflect::Reflect, tasks::futures_lite::io::BufReader};
 use bevy_seedling::{firewheel::clock::DurationSeconds, sample::AudioSample};
 use encoding_rs::SHIFT_JIS;
-use enum_map::EnumMap;
 use nom::{
     Err, Parser,
     character::complete::space0,
@@ -66,11 +65,10 @@ pub struct SoundChip {
 }
 
 #[derive(Debug, Clone, Reflect)]
-#[reflect(opaque)]
 pub struct DtxChart {
     pub title: String,
     pub bgm_chips: Vec<SoundChip>,
-    pub drum_chips: EnumMap<DrumNote, Vec<SoundChip>>,
+    pub drum_chips: HashMap<DrumNote, Vec<SoundChip>>,
 }
 
 #[derive(Debug)]
@@ -181,7 +179,7 @@ impl DtxChartParser {
 
         let mut audio_handles = HashMap::new();
         let mut bgm_chips = Vec::new();
-        let mut drum_chips = EnumMap::<_, Vec<_>>::default();
+        let mut drum_chips = HashMap::<_, Vec<_>>::new();
 
         for Object { measure, value } in objects {
             let measure = measure as f64
@@ -252,7 +250,9 @@ impl DtxChartParser {
 
                     match channel {
                         SoundChipChannel::Bgm => bgm_chips.push(chip),
-                        SoundChipChannel::Drum(note) => drum_chips[note].push(chip),
+                        SoundChipChannel::Drum(note) => {
+                            drum_chips.entry(note).or_default().push(chip)
+                        }
                     }
                 }
             }

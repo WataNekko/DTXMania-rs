@@ -37,7 +37,6 @@ bjxa-rs = { path = "crates/bjxa-rs" }
 cpal = { version = "0.18", features = ["pipewire", "asio"] }
 dashmap = "6.1.0"
 encoding_rs.workspace = true
-enum-map = "3.1.0"
 ffmpeg-next.workspace = true
 ffmpeg-utils = { path = "crates/ffmpeg-utils" }
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.

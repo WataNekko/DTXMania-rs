@@ -9,7 +9,6 @@ use bevy_seedling::{
     sample::SamplePlayer,
     time::{Audio, AudioTime},
 };
-use enum_map::EnumMap;
 
 use crate::{
     assets::song::DrumNote,
@@ -62,7 +61,7 @@ struct PlaybackTime(DurationSeconds);
 struct NextBgmChipIdx(usize);
 
 #[derive(Resource, Default, Deref, DerefMut)]
-struct NextDrumChipsIndices(EnumMap<DrumNote, usize>);
+struct NextDrumChipsIndices(HashMap<DrumNote, usize>);
 
 fn setup_ui(mut commands: Commands, song: Res<LoadedSong>) {
     let title = song.chart.title.clone();
@@ -167,7 +166,7 @@ fn spawn_chips(
         .collect();
 
     for (note, chips) in &song.chart.drum_chips {
-        let Some(&lane) = lanes.get(&note) else {
+        let Some(&lane) = lanes.get(note) else {
             continue;
         };
 
@@ -188,9 +187,9 @@ fn spawn_chips(
     }
 }
 
-fn start_playback(time: Res<Time<Audio>>, mut commands: Commands) {
+fn start_playback(mut commands: Commands, time: Res<Time<Audio>>) {
     commands.insert_resource(NextBgmChipIdx(0));
-    commands.insert_resource(NextDrumChipsIndices(EnumMap::default()));
+    commands.insert_resource(NextDrumChipsIndices(HashMap::new()));
     commands.insert_resource(PlaybackStart(time.now()));
     commands.insert_resource(PlaybackTime(DurationSeconds::ZERO));
 }
@@ -243,8 +242,10 @@ fn autoplay_drum_chips(
     mut next_indices: ResMut<NextDrumChipsIndices>,
     time: Res<PlaybackTime>,
 ) {
-    for (note, next_idx) in next_indices.iter_mut() {
-        let played_count = song.chart.drum_chips[note][*next_idx..]
+    for (note, chips) in &song.chart.drum_chips {
+        let next_idx = next_indices.entry(*note).or_default();
+
+        let played_count = chips[*next_idx..]
             .iter()
             .take_while(|chip| chip.time <= **time)
             .inspect(|chip| {
