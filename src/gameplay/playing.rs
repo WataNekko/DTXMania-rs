@@ -3,12 +3,16 @@ use std::collections::HashMap;
 use bevy::{
     input::{common_conditions::input_just_pressed, keyboard::Key},
     prelude::*,
-    time::Stopwatch,
 };
-use bevy_seedling::{sample::SamplePlayer, time::Audio};
+use bevy_seedling::{
+    firewheel::clock::{DurationSeconds, InstantSeconds},
+    sample::SamplePlayer,
+    time::{Audio, AudioTime},
+};
+use enum_map::EnumMap;
 
 use crate::{
-    assets::song::{Chip, DrumNote, SoundChip},
+    assets::song::DrumNote,
     gameplay::{GameplayState, LoadedSong, Return},
 };
 
@@ -18,11 +22,12 @@ impl Plugin for PlayingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             OnEnter(GameplayState::Playing),
-            (setup, spawn_chips).chain(),
+            ((setup_ui, spawn_chips).chain(), start_playback),
         )
+        .add_systems(OnExit(GameplayState::Playing), cleanup_playback)
         .add_systems(
             PreUpdate,
-            sync_playback_time.run_if(in_state(GameplayState::Playing)),
+            update_playback_time.run_if(in_state(GameplayState::Playing)),
         )
         .add_systems(
             Update,
@@ -30,7 +35,8 @@ impl Plugin for PlayingPlugin {
                 update_chips_pos,
                 (|mut commands: Commands| commands.trigger(Return))
                     .run_if(input_just_pressed(Key::Escape)),
-                play_sound_chips,
+                play_bgm_chips,
+                autoplay_drum_chips,
             )
                 .run_if(in_state(GameplayState::Playing)),
         );
@@ -44,15 +50,21 @@ struct ChipLaneContainer {
 }
 
 #[derive(Component, Deref)]
-struct ChipTime(f64);
+struct ChipTime(DurationSeconds);
+
+#[derive(Resource, Deref)]
+struct PlaybackStart(InstantSeconds);
 
 #[derive(Resource, Deref, DerefMut)]
-struct PlaybackTime(Stopwatch);
+struct PlaybackTime(DurationSeconds);
 
 #[derive(Resource, Default)]
-struct PlayChipIdx(usize);
+struct NextBgmChipIdx(usize);
 
-fn setup(mut commands: Commands, song: Res<LoadedSong>) {
+#[derive(Resource, Default, Deref, DerefMut)]
+struct NextDrumChipsIndices(EnumMap<DrumNote, usize>);
+
+fn setup_ui(mut commands: Commands, song: Res<LoadedSong>) {
     let title = song.chart.title.clone();
     let lanes = [
         DrumNote::HiHatClose,
@@ -142,8 +154,6 @@ fn setup(mut commands: Commands, song: Res<LoadedSong>) {
             )
         ],
     ));
-
-    commands.insert_resource(PlayChipIdx(0));
 }
 
 fn spawn_chips(
@@ -156,64 +166,95 @@ fn spawn_chips(
         .map(|(lane, entity)| (lane.lane_note, entity))
         .collect();
 
-    for info in &song.chart.chips {
-        let Chip::Sound {
-            chip: SoundChip::Drum(lane_note),
-            ..
-        } = info.chip
-        else {
-            continue;
-        };
-
-        let Some(&lane) = lanes.get(&lane_note) else {
+    for (note, chips) in &song.chart.drum_chips {
+        let Some(&lane) = lanes.get(&note) else {
             continue;
         };
 
         commands.entity(lane).with_children(|parent| {
-            parent.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: px(54),
-                    height: px(10),
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.8, 0.8, 0.0)),
-                ChipTime(info.time_sec),
-            ));
+            for chip in chips {
+                parent.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: px(54),
+                        height: px(10),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.8, 0.8, 0.0)),
+                    ChipTime(chip.time),
+                ));
+            }
         });
     }
-
-    commands.insert_resource(PlaybackTime(Stopwatch::new()));
 }
 
-fn sync_playback_time(time: Res<Time<Audio>>, mut playback_time: ResMut<PlaybackTime>) {
-    playback_time.tick(time.delta());
+fn start_playback(time: Res<Time<Audio>>, mut commands: Commands) {
+    commands.insert_resource(NextBgmChipIdx(0));
+    commands.insert_resource(NextDrumChipsIndices(EnumMap::default()));
+    commands.insert_resource(PlaybackStart(time.now()));
+    commands.insert_resource(PlaybackTime(DurationSeconds::ZERO));
+}
+
+fn cleanup_playback(mut commands: Commands) {
+    commands.remove_resource::<NextBgmChipIdx>();
+    commands.remove_resource::<NextDrumChipsIndices>();
+    commands.remove_resource::<PlaybackStart>();
+    commands.remove_resource::<PlaybackTime>();
+}
+
+fn update_playback_time(
+    time: Res<Time<Audio>>,
+    playback_start: Res<PlaybackStart>,
+    mut playback_time: ResMut<PlaybackTime>,
+) {
+    **playback_time = time.now() - **playback_start;
 }
 
 fn update_chips_pos(chip_query: Query<(&ChipTime, &mut UiTransform)>, time: Res<PlaybackTime>) {
     for (ChipTime(chip_time), mut transform) in chip_query {
         const SCROLL_SPEED: f64 = 800.0;
-        transform.translation.y = px((time.elapsed_secs_f64() - chip_time) * SCROLL_SPEED);
+        transform.translation.y = px((time.0.0 - chip_time.0) * SCROLL_SPEED);
     }
 }
 
-fn play_sound_chips(
+fn play_bgm_chips(
     mut commands: Commands,
-    mut play_idx: ResMut<PlayChipIdx>,
     song: Res<LoadedSong>,
+    mut next_idx: ResMut<NextBgmChipIdx>,
     time: Res<PlaybackTime>,
 ) {
-    let played_count = song.chart.chips[play_idx.0..]
+    let played_count = song.chart.bgm_chips[next_idx.0..]
         .iter()
-        .take_while(|info| info.time_sec <= time.elapsed_secs_f64())
-        .inspect(|info| {
-            let Chip::Sound { audio: handle, .. } = &info.chip;
+        .take_while(|chip| chip.time <= **time)
+        .inspect(|chip| {
             commands.spawn((
                 DespawnOnExit(GameplayState::Playing),
-                SamplePlayer::new(handle.clone()),
+                SamplePlayer::new(chip.audio.clone()),
             ));
         })
         .count();
 
-    play_idx.0 += played_count;
+    next_idx.0 += played_count;
+}
+
+fn autoplay_drum_chips(
+    mut commands: Commands,
+    song: Res<LoadedSong>,
+    mut next_indices: ResMut<NextDrumChipsIndices>,
+    time: Res<PlaybackTime>,
+) {
+    for (note, next_idx) in next_indices.iter_mut() {
+        let played_count = song.chart.drum_chips[note][*next_idx..]
+            .iter()
+            .take_while(|chip| chip.time <= **time)
+            .inspect(|chip| {
+                commands.spawn((
+                    DespawnOnExit(GameplayState::Playing),
+                    SamplePlayer::new(chip.audio.clone()),
+                ));
+            })
+            .count();
+
+        *next_idx += played_count;
+    }
 }

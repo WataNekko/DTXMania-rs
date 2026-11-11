@@ -31,11 +31,13 @@ bevy_egui = { version = "0.42", default-features = false, features = [
 bevy_seedling = { version = "0.8.0", default-features = false, features = [
   "cpal",
   "diagnostics",
+  "reflect",
 ] }
 bjxa-rs = { path = "crates/bjxa-rs" }
 cpal = { version = "0.18", features = ["pipewire", "asio"] }
 dashmap = "6.1.0"
 encoding_rs.workspace = true
+enum-map = "3.1.0"
 ffmpeg-next.workspace = true
 ffmpeg-utils = { path = "crates/ffmpeg-utils" }
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.

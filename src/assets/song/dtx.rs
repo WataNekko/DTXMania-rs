@@ -1,16 +1,12 @@
-mod chips;
 mod parsers;
 
-use std::{collections::HashMap, io, path::Path};
+use std::{collections::HashMap, io, num::NonZeroU16, path::Path};
 
 use async_fs::File;
-use bevy::{
-    asset::{AssetPath, UntypedAssetId},
-    prelude::*,
-    reflect::Reflect,
-    tasks::futures_lite::io::BufReader,
-};
+use bevy::{asset::AssetPath, prelude::*, reflect::Reflect, tasks::futures_lite::io::BufReader};
+use bevy_seedling::{firewheel::clock::DurationSeconds, sample::AudioSample};
 use encoding_rs::SHIFT_JIS;
+use enum_map::EnumMap;
 use nom::{
     Err, Parser,
     character::complete::space0,
@@ -22,12 +18,9 @@ use utils::{encoding::AsyncBufReadEncodingExt, parser::opt_err};
 
 use crate::assets::DTX_SOURCE_ID;
 
-use self::{
-    chips::{Channel, Object},
-    parsers::*,
-};
+use self::parsers::*;
 
-pub use self::chips::{Chip, ChipInfo, DrumNote, SoundChip};
+pub use self::parsers::DrumNote;
 
 pub async fn load_dtx_chart(
     path: impl AsRef<Path>,
@@ -53,43 +46,48 @@ pub async fn load_dtx_chart(
         }
     }
 
-    let base_path = path
-        .parent()
-        .expect("Since path sure is a file at this point, getting the parent dir shouldn't fail.");
+    let base_path = path.parent().expect("path is a file, should have parent.");
 
-    let (chart, asset_ids) = parser.compile(base_path, asset_server);
+    let (chart, asset_handles) = parser.finalize(base_path, asset_server);
 
     // Wait for all the assets to finish loading
-    for id in asset_ids {
-        let _ = asset_server.wait_for_asset_id(id).await;
+    for handle in asset_handles {
+        let _ = asset_server.wait_for_asset_untyped(&handle).await;
+        // discard possible error since AssetServer already logs this
     }
 
     Ok(chart)
 }
 
-#[derive(Debug, Reflect)]
+#[derive(Debug, Clone, Reflect)]
+pub struct SoundChip {
+    pub time: DurationSeconds,
+    pub audio: Handle<AudioSample>,
+}
+
+#[derive(Debug, Clone, Reflect)]
+#[reflect(opaque)]
 pub struct DtxChart {
     pub title: String,
-    pub chips: Vec<ChipInfo>,
+    pub bgm_chips: Vec<SoundChip>,
+    pub drum_chips: EnumMap<DrumNote, Vec<SoundChip>>,
 }
 
 #[derive(Debug)]
 struct DtxChartParser {
     title: String,
     bpm: f64,
-    bpm_list: HashMap<u16, f64>,
+    bpm_list: HashMap<NonZeroU16, f64>,
     base_bpm: f64,
-    audio_list: HashMap<u16, String>,
+    audio_list: HashMap<NonZeroU16, String>,
     objects: Vec<Object>,
 }
-
-const DEFAULT_BPM: f64 = 120.0;
 
 impl Default for DtxChartParser {
     fn default() -> Self {
         Self {
             title: String::new(),
-            bpm: DEFAULT_BPM,
+            bpm: Self::DEFAULT_BPM,
             bpm_list: HashMap::new(),
             base_bpm: 0.0,
             audio_list: HashMap::new(),
@@ -99,6 +97,8 @@ impl Default for DtxChartParser {
 }
 
 impl DtxChartParser {
+    const DEFAULT_BPM: f64 = 120.0;
+
     fn parse_line<'a>(&mut self, input: &'a str) -> Result<(), ParseError<'a>> {
         let (input, _) = space0(input)?;
 
@@ -125,10 +125,10 @@ impl DtxChartParser {
         if let Some(title) = opt_err(title(command, value))? {
             self.title = title.to_string();
         } else if let Some((zz, bpm)) = opt_err(bpm(command, value))? {
-            if zz == 0 {
-                self.bpm = bpm;
-            } else {
+            if let Some(zz) = zz {
                 self.bpm_list.insert(zz, bpm);
+            } else {
+                self.bpm = bpm;
             }
         } else if let Some(base_bpm) = opt_err(base_bpm(command, value))? {
             self.base_bpm = base_bpm;
@@ -145,68 +145,15 @@ impl DtxChartParser {
         command: &'a str,
         value: &'a str,
     ) -> Result<bool, ParseError<'a>> {
-        let Some(ObjectDesc {
-            measure,
-            channel,
-            value,
-        }) = opt_err(object_desc(command, value))?
-        else {
-            return Ok(false);
-        };
-
-        if channel == Channel::BarLength {
-            let value = value.into_float()?;
-
-            self.objects.push(Object {
-                measure,
-                channel: Channel::BarLength,
-                fraction: value, // use fraction as the bar length value
-                value: 0,
-            });
-        } else {
-            // The strategy is to push new objects to the list as we parse through the iterator.
-            // But if it fails later, we'll roll back the list.
-
-            let old_len = self.objects.len();
-            let mut total_items = 0;
-
-            let mut iter = value.into_iter();
-
-            for (i, obj) in iter.by_ref().enumerate() {
-                total_items += 1;
-
-                if obj == 0 {
-                    // Only store non-spacing objects
-                    continue;
-                }
-
-                self.objects.push(Object {
-                    measure,
-                    fraction: i as f64,
-                    channel,
-                    value: obj,
-                });
-            }
-
-            iter.finish().inspect_err(|_| {
-                // Parsing failed. Roll back
-                self.objects.truncate(old_len);
-            })?;
-
-            // All good. Post-process the new objects
-            for new_obj in &mut self.objects[old_len..] {
-                new_obj.fraction /= total_items as f64;
-            }
-        }
-
-        Ok(true)
+        let parsed = opt_err(object_desc(command, value, &mut self.objects))?;
+        Ok(parsed.is_some())
     }
 
-    fn compile(
+    fn finalize(
         self,
         base_path: &Path,
         asset_server: &AssetServer,
-    ) -> (DtxChart, Vec<UntypedAssetId>) {
+    ) -> (DtxChart, Vec<UntypedHandle>) {
         let Self {
             title,
             bpm: mut curr_bpm,
@@ -226,52 +173,71 @@ impl DtxChartParser {
         };
 
         // These anchors are only updated when bar length or BPM change. Time of the chips are
-        // calculated according to these anchors instead of the previous chip's time to reduce
-        // time drift caused by accumulated float error.
+        // calculated according to these anchors instead of the previous chip's time to reduce time
+        // drifts caused by accumulated float errors.
         let mut anchor_measure = 0.0;
-        let mut anchor_measure_time = calc_measure_time(curr_bar_len, curr_bpm);
+        let mut curr_measure_time = calc_measure_time(curr_bar_len, curr_bpm);
         let mut anchor_time = 0.0;
 
-        let mut chips = Vec::new();
-
         let mut audio_handles = HashMap::new();
+        let mut bgm_chips = Vec::new();
+        let mut drum_chips = EnumMap::<_, Vec<_>>::default();
 
-        for Object {
-            measure,
-            fraction,
-            channel,
-            value,
-        } in objects
-        {
-            let measure =
-                (measure as f64) + fraction * ((channel != Channel::BarLength) as u8 as f64);
+        for Object { measure, value } in objects {
+            let measure = measure as f64
+                + match value {
+                    ObjectValue::BarLength(_) => 0.0,
+                    ObjectValue::Timed { fraction, .. } => fraction,
+                };
 
             let measure_diff = measure - anchor_measure;
 
-            let time_diff = measure_diff * anchor_measure_time;
-            let time_sec = anchor_time + time_diff;
+            let time_diff = measure_diff * curr_measure_time;
+            let playback_time = anchor_time + time_diff;
 
-            let anchor_should_change = match channel {
-                Channel::BarLength => {
-                    let bar_len = fraction;
-                    std::mem::replace(&mut curr_bar_len, bar_len) != bar_len
+            let mut update_anchor = |bar_len, bpm| {
+                anchor_measure = measure;
+                curr_measure_time = calc_measure_time(bar_len, bpm);
+                anchor_time = playback_time;
+            };
+
+            let (channel, value) = match value {
+                ObjectValue::BarLength(bar_len) => {
+                    if curr_bar_len != bar_len {
+                        curr_bar_len = bar_len;
+                        update_anchor(bar_len, curr_bpm);
+                    }
+                    continue;
                 }
-                Channel::Bpm => {
-                    let bpm = base_bpm + value as f64;
-                    std::mem::replace(&mut curr_bpm, bpm) != bpm
+                ObjectValue::Timed { channel, value, .. } => (channel, value),
+            };
+
+            match channel {
+                TimedChannel::Bpm => {
+                    let bpm = base_bpm + value.get() as f64;
+
+                    if curr_bpm != bpm {
+                        curr_bpm = bpm;
+                        update_anchor(curr_bar_len, bpm);
+                    }
                 }
-                Channel::BpmExt => {
-                    let bpm = base_bpm + bpm_list.get(&value).unwrap_or(&DEFAULT_BPM);
-                    std::mem::replace(&mut curr_bpm, bpm) != bpm
+                TimedChannel::BpmExt => {
+                    let bpm = base_bpm + bpm_list.get(&value).unwrap_or(&Self::DEFAULT_BPM);
+
+                    if curr_bpm != bpm {
+                        curr_bpm = bpm;
+                        update_anchor(curr_bar_len, bpm);
+                    }
                 }
-                Channel::Sound(chip) => {
+                TimedChannel::SoundChip(channel) => {
                     let audio = audio_handles
                         .entry(value)
                         .or_insert_with(|| {
                             audio_list
                                 .get(&value)
-                                .map(|name| base_path.join(name))
-                                .map(|path| {
+                                .map(|name| {
+                                    let path = base_path.join(name);
+
                                     asset_server
                                         .load(AssetPath::from(path).with_source(DTX_SOURCE_ID))
                                 })
@@ -279,25 +245,29 @@ impl DtxChartParser {
                         })
                         .clone();
 
-                    chips.push(ChipInfo {
-                        time_sec,
-                        chip: Chip::Sound { chip, audio },
-                    });
+                    let chip = SoundChip {
+                        time: playback_time.into(),
+                        audio,
+                    };
 
-                    false
+                    match channel {
+                        SoundChipChannel::Bgm => bgm_chips.push(chip),
+                        SoundChipChannel::Drum(note) => drum_chips[note].push(chip),
+                    }
                 }
-            };
-
-            if anchor_should_change {
-                anchor_measure = measure;
-                anchor_measure_time = calc_measure_time(curr_bar_len, curr_bpm);
-                anchor_time = time_sec;
             }
         }
 
-        let asset_ids = Vec::from_iter(audio_handles.into_values().map(|h| h.id().untyped()));
+        let asset_handles = Vec::from_iter(audio_handles.into_values().map(Handle::untyped));
 
-        (DtxChart { title, chips }, asset_ids)
+        (
+            DtxChart {
+                title,
+                bgm_chips,
+                drum_chips,
+            },
+            asset_handles,
+        )
     }
 }
 
