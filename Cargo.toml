@@ -54,7 +54,7 @@ utils = { path = "crates/utils" }
 [features]
 dev = [
   "bevy/dynamic_linking",
-  "bevy/debug",
+  "bevy/dev",
   "dep:bevy-inspector-egui",
   "dep:bevy_egui",
 ]
